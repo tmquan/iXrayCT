@@ -382,10 +382,10 @@ class Model(pl.LightningModule):
         valid_tfm = None
         train_tfm = AB.Compose([
             # AB.ToFloat(), 
-            # AB.Rotate(limit=20, border_mode=cv2.BORDER_CONSTANT, p=1.0),
-            # AB.Resize(height=512, width=512, p=1.0), 
-            # AB.CropNonEmptyMaskIfExists(height=480, width=480, p=0.8), 
-            # AB.RandomScale(scale_limit=(0.8, 1.2), p=0.8),
+            AB.Rotate(limit=20, border_mode=cv2.BORDER_CONSTANT, p=1.0),
+            AB.Resize(height=512, width=512, p=1.0), 
+            AB.CropNonEmptyMaskIfExists(height=480, width=480, p=0.8), 
+            AB.RandomScale(scale_limit=(0.8, 1.2), p=0.8),
             # AB.Equalize(p=0.8),
             # AB.CLAHE(p=0.8),
             AB.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.8),
