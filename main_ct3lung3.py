@@ -211,7 +211,7 @@ class VNet(nn.Module):
 
         layers.append(nn.Conv3d(feats, nb_class, kernel_size=1))
         self.layers = nn.ModuleList(layers)
-        self.output = nn.Tanh() #nn.ReLU(inplace=True)
+        self.output = nn.Tanh() #nn.LeakyReLU(inplace=True)
 
     def forward(self, x):
         xi = [self.layers[0](x * 2.0 - 1.0)]
@@ -227,8 +227,8 @@ class VNet(nn.Module):
 
 class DoubleConv(nn.Module):
     """
-    Double Convolution and BN and ReLU
-    (3x3 conv -> BN -> ReLU) ** 2
+    Double Convolution and BN and LeakyReLU
+    (3x3 conv -> BN -> LeakyReLU) ** 2
     """
     def __init__(
             self, 
@@ -238,11 +238,11 @@ class DoubleConv(nn.Module):
         super().__init__()
         self.net = nn.Sequential(
             nn.Conv3d(in_ch, out_ch, kernel_size=3, padding=1),
-            nn.BatchNorm3d(out_ch),
-            nn.ReLU(inplace=True),
+            nn.InstanceNorm3d(out_ch),
+            nn.LeakyReLU(inplace=True),
             nn.Conv3d(out_ch, out_ch, kernel_size=3, padding=1),
-            nn.BatchNorm3d(out_ch),
-            nn.ReLU(inplace=True)
+            nn.InstanceNorm3d(out_ch),
+            nn.LeakyReLU(inplace=True)
         )
 
     def forward(self, x):
