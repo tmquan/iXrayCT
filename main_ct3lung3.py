@@ -31,6 +31,8 @@ from pytorch_lightning.loggers import WandbLogger
 
 import kornia
 
+from model import UNet3D
+
 train_image_dir = ['/u01/data/iXrayCT_COVID/data/train/ct3lung3/NSCLC/neg/images/']
 train_label_dir = ['/u01/data/iXrayCT_COVID/data/train/ct3lung3/NSCLC/neg/labels/']
 valid_image_dir = ['/u01/data/iXrayCT_COVID/data/test/ct3lung3/MEDSEG/pos/images/', 
@@ -43,7 +45,6 @@ valid_label_dir = ['/u01/data/iXrayCT_COVID/data/test/ct3lung3/MEDSEG/pos/labels
 
 def dice_loss(input, target, eps=1e-8):
     r"""Function that computes Sørensen-Dice Coefficient loss.
-
     See :class:`~kornia.losses.DiceLoss` for details.
     """
     if not torch.is_tensor(input):
@@ -87,30 +88,20 @@ def dice_loss(input, target, eps=1e-8):
 
 class DiceLoss(nn.Module):
     r"""Criterion that computes Sørensen-Dice Coefficient loss.
-
     According to [1], we compute the Sørensen-Dice Coefficient as follows:
-
     .. math::
-
         \text{Dice}(x, class) = \frac{2 |X| \cap |Y|}{|X| + |Y|}
-
     where:
        - :math:`X` expects to be the scores of each class.
        - :math:`Y` expects to be the one-hot tensor with the class labels.
-
     the loss, is finally computed as:
-
     .. math::
-
         \text{loss}(x, class) = 1 - \text{Dice}(x, class)
-
-    [1] https://en.wikipedia.org/wiki/S%C3%B8rensen%E2%80%93Dice_coefficient
-
+    [1] https://en.wikipedia.org/wiki/S%C3%B8rensen%E2%128%93Dice_coefficient
     Shape:
         - Input: :math:`(N, C, H, W)` where C = number of classes.
         - Target: :math:`(N, H, W)` where each value is
           :math:`0 ≤ targets[i] ≤ C−1`.
-
     Examples:
         >>> N = 5  # nb_class
         >>> loss = kornia.losses.DiceLoss()
@@ -171,15 +162,14 @@ class CustomNativeDataset(Dataset):
             label = transformed['mask']
             # image = np.transpose(image, (2, 0, 1))
             # label = np.transpose(label, (2, 0, 1))
-        image = skimage.transform.resize(image, [64, 256, 256], order=5) # Bi-linear
-        label = skimage.transform.resize(label, [64, 256, 256], order=5) # Nearest neighbor
+        image = skimage.transform.resize(image, [128, 256, 256], order=5) # Bi-linear
+        label = skimage.transform.resize(label, [128, 256, 256], order=5) # Nearest neighbor
         # image = skimage.exposure.equalize_adapthist(image, clip_limit=0.03)
         p2, p98 = np.percentile(image, (2, 98))
         image = skimage.exposure.rescale_intensity(image, in_range=(p2, p98))
         # print(image.max(), image.min(), label.max(), label.min())
         image = 255*(image)
         label = 255*(label>0.5)
-
         
         # print("After", image.shape, label.shape)
         return torch.Tensor(image).float().unsqueeze_(0), \
@@ -339,6 +329,13 @@ class Model(pl.LightningModule):
             bilinear=self.hparams.bilinear,
         )
         print(self.vnet)
+        # self.vnet = UNet3D(
+        #     in_channels = 1,
+        #     out_channels = 1,
+        #     f_maps = self.hparams.features,
+        #     num_levels = self.hparams.nb_layer,
+        # )
+
     def forward(self, x):
 
         return self.vnet(x)
@@ -348,9 +345,9 @@ class Model(pl.LightningModule):
         x = x / 255.0
         y = y / 255.0
         y_hat = self.forward(x)
-        loss = dice_loss(y_hat, y)
+        loss = DiceLoss()(y_hat, y) + nn.L1Loss()(y_hat, y)
         vis_images = torch.cat([x, y, y_hat], dim=-1)#[:8]
-        vis_images = vis_images[:,:,32,:,:]
+        vis_images = vis_images[:,:,56,:,:]
         grid = torchvision.utils.make_grid(vis_images, nrow=2, padding=0)
         self.logger.experiment.add_image('train_vis', grid, self.current_epoch)
         tensorboard_logs = {'train_loss': loss}
@@ -362,9 +359,9 @@ class Model(pl.LightningModule):
         x = x / 255.0
         y = y / 255.0
         y_hat = self.forward(x)
-        loss = dice_loss(y_hat, y)
+        loss = DiceLoss()(y_hat, y) + nn.L1Loss()(y_hat, y)
         vis_images = torch.cat([x, y, y_hat], dim=-1)#[:8]
-        vis_images = vis_images[:,:,32,:,:]
+        vis_images = vis_images[:,:,56,:,:]
         grid = torchvision.utils.make_grid(vis_images, nrow=2, padding=0)
         self.logger.experiment.add_image('valid_vis', grid, self.current_epoch)
         return {'val_loss': loss}
@@ -382,10 +379,10 @@ class Model(pl.LightningModule):
         valid_tfm = None
         train_tfm = AB.Compose([
             # AB.ToFloat(), 
-            AB.Rotate(limit=20, border_mode=cv2.BORDER_CONSTANT, p=1.0),
-            AB.Resize(height=512, width=512, p=1.0), 
-            AB.CropNonEmptyMaskIfExists(height=480, width=480, p=0.8), 
-            AB.RandomScale(scale_limit=(0.8, 1.2), p=0.8),
+            # AB.Rotate(limit=20, border_mode=cv2.BORDER_CONSTANT, p=1.0),
+            # AB.Resize(height=512, width=512, p=1.0), 
+            # AB.CropNonEmptyMaskIfExists(height=480, width=480, p=0.8), 
+            # AB.RandomScale(scale_limit=(0.8, 1.2), p=0.8),
             # AB.Equalize(p=0.8),
             # AB.CLAHE(p=0.8),
             AB.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.8),
@@ -489,16 +486,16 @@ if __name__ == '__main__':
     parser = ArgumentParser(add_help=False)
     parser.add_argument('--dimx', type=int, default=256)
     parser.add_argument('--dimy', type=int, default=256)
-    parser.add_argument('--dimz', type=int, default=64)
+    parser.add_argument('--dimz', type=int, default=128)
     parser.add_argument('--lgdir', type=str, default='lightning_logs')
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument("--gpus", type=int, default=-1, help="number of available GPUs")
     parser.add_argument('--distributed-backend', type=str, default='dp', choices=('dp', 'ddp', 'ddp2'),
                         help='supports three options dp, ddp, ddp2')
     parser.add_argument('--use_amp', action='store_true', help='if true uses 16 bit precision')
-    parser.add_argument("--batch_size", type=int, default=4, help="size of the batches")
+    parser.add_argument("--batch_size", type=int, default=2, help="size of the batches")
     parser.add_argument("--num_workers", type=int, default=4, help="size of the workers")
-    parser.add_argument("--lr", type=float, default=0.0001, help="learning rate")
+    parser.add_argument("--lr", type=float, default=0.002, help="learning rate")
     parser.add_argument("--nb_layer", type=int, default=5, help="number of layers on u-net")
     parser.add_argument("--features", type=float, default=32, help="number of features in first layer")
     parser.add_argument("--bilinear", action='store_true', default=False,
