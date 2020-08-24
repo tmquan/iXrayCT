@@ -13,7 +13,7 @@ import numpy as np
 import cv2, skimage.io, skimage.transform, skimage.exposure
 import albumentations as AB
 # import volumentations as VL
-import torchio as TI
+# import torchio as TI
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -29,9 +29,9 @@ from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from pytorch_lightning.loggers import WandbLogger
 
-import kornia
-
-from model import UNet3D
+# import kornia
+import scipy.ndimage
+# from model import UNet3D
 
 train_image_dir = ['/u01/data/iXrayCT_COVID/data/train/ct3lung3/NSCLC/neg/images/']
 train_label_dir = ['/u01/data/iXrayCT_COVID/data/train/ct3lung3/NSCLC/neg/labels/']
@@ -97,7 +97,7 @@ class DiceLoss(nn.Module):
     the loss, is finally computed as:
     .. math::
         \text{loss}(x, class) = 1 - \text{Dice}(x, class)
-    [1] https://en.wikipedia.org/wiki/S%C3%B8rensen%E2%128%93Dice_coefficient
+    [1] https://en.wikipedia.org/wiki/S%C3%B8rensen%E2%64%93Dice_coefficient
     Shape:
         - Input: :math:`(N, C, H, W)` where C = number of classes.
         - Target: :math:`(N, H, W)` where each value is
@@ -126,6 +126,7 @@ class CustomNativeDataset(Dataset):
         size=500, 
         transforms=None
     ):
+        # print('\n')
         self.size = size
         self.is_train = True if train_or_valid=='train' else False
         self.imagedir = imagedir #if self.is_train else imagedir.replace('train', 'test')
@@ -152,41 +153,33 @@ class CustomNativeDataset(Dataset):
             print(self.imagefiles[idx])
             print(self.labelfiles[idx])
         assert image.shape == label.shape
-        # print(image.shape, label.shape)
 
         if self.transforms is not None:
-            # image = np.transpose(image, (1, 2, 0))
-            # label = np.transpose(label, (1, 2, 0))
             transformed = self.transforms(image=image, mask=label)
             image = transformed['image']
             label = transformed['mask']
-            # image = np.transpose(image, (2, 0, 1))
-            # label = np.transpose(label, (2, 0, 1))
-        image = skimage.transform.resize(image, [128, 256, 256], order=5) # Bi-linear
-        label = skimage.transform.resize(label, [128, 256, 256], order=5) # Nearest neighbor
+        # image = skimage.transform.resize(image, [64, 256, 256], order=2) # Bi-linear
+        # label = skimage.transform.resize(label, [64, 256, 256], order=2) # Nearest neighbor
         # image = skimage.exposure.equalize_adapthist(image, clip_limit=0.03)
+        scale = [64.0/image.shape[0], 256.0/image.shape[1], 256.0/image.shape[2]]
+        # print(image.min(), image.max(), label.min(), label.max())
+        
+        image = scipy.ndimage.zoom(image, scale, order=5)
+        label = scipy.ndimage.zoom(label, scale, order=5)
+        # print(image.min(), image.max(), label.min(), label.max())
+
         p2, p98 = np.percentile(image, (2, 98))
         image = skimage.exposure.rescale_intensity(image, in_range=(p2, p98))
-        # print(image.max(), image.min(), label.max(), label.min())
-        image = 255*(image)
-        label = 255*(label>0.5)
+        label = 255*(label>128)
+        # print(image.min(), image.max(), label.min(), label.max())
+
         
-        # print("After", image.shape, label.shape)
+        # print(str(idx).zfill(3), image.shape, label.shape)
         return torch.Tensor(image).float().unsqueeze_(0), \
                torch.Tensor(label).float().unsqueeze_(0)
 
 
 class VNet(nn.Module):
-    """
-    Architecture based on U-Net: Convolutional Networks for Biomedical Image Segmentation
-    Link - https://arxiv.org/abs/1505.04597
-    Parameters:
-        nb_class: Number of output classes required (default 19 for KITTI dataset)
-        nb_layer: Number of layers in each side of U-net
-        features: Number of features in first layer
-        bilinear: Whether to use bilinear interpolation or transposed
-            convolutions for upsampling.
-    """
     def __init__(
             self, 
             nb_class = 1,
@@ -226,10 +219,6 @@ class VNet(nn.Module):
 
 
 class DoubleConv(nn.Module):
-    """
-    Double Convolution and BN and LeakyReLU
-    (3x3 conv -> BN -> LeakyReLU) ** 2
-    """
     def __init__(
             self, 
             in_ch, 
@@ -250,10 +239,6 @@ class DoubleConv(nn.Module):
 
 
 class Down(nn.Module):
-    """
-    Combination of MaxPool3d and DoubleConv in series
-    """
-
     def __init__(
             self, 
             in_ch, 
@@ -261,7 +246,8 @@ class Down(nn.Module):
     ):
         super().__init__()
         self.net = nn.Sequential(
-            nn.MaxPool3d(kernel_size=2, stride=2),
+            # nn.MaxPool3d(kernel_size=2, stride=2),
+            nn.Conv3d(in_ch, in_ch, kernel_size=4, stride=2),
             DoubleConv(in_ch, out_ch)
         )
 
@@ -270,12 +256,6 @@ class Down(nn.Module):
 
 
 class Up(nn.Module):
-    """
-    Upsampling (by either bilinear interpolation or transpose convolutions)
-    followed by concatenation of feature map from contracting path,
-    followed by double 3x3 convolution.
-    """
-
     def __init__(
             self, 
             in_ch, 
@@ -290,16 +270,16 @@ class Up(nn.Module):
                             mode="bilinear", 
                             align_corners=True),
                 nn.Conv3d(in_ch, 
-                          in_ch // 2, 
+                          out_ch, 
                           kernel_size=1),
             )
         else:
             self.upsample = nn.ConvTranspose3d(in_ch, 
-                                               in_ch // 2, 
-                                               kernel_size=2, 
+                                               out_ch, 
+                                               kernel_size=4, 
                                                stride=2)
 
-        self.conv = DoubleConv(in_ch, out_ch)
+        self.conv = DoubleConv(out_ch, out_ch)
 
     def forward(self, x1, x2):
         x1 = self.upsample(x1)
@@ -314,8 +294,8 @@ class Up(nn.Module):
                         diff_w // 2, diff_w - diff_w // 2])
 
         # Concatenate along the channels axis
-        x = torch.cat([x2, x1], dim=1)
-        # x = x2 + x1
+        # x = torch.cat([x2, x1], dim=1)
+        x = x2 + x1
         return self.conv(x)
     
 
@@ -329,13 +309,7 @@ class Model(pl.LightningModule):
             bilinear=self.hparams.bilinear,
         )
         print(self.vnet)
-        # self.vnet = UNet3D(
-        #     in_channels = 1,
-        #     out_channels = 1,
-        #     f_maps = self.hparams.features,
-        #     num_levels = self.hparams.nb_layer,
-        # )
-
+       
     def forward(self, x):
 
         return self.vnet(x)
@@ -347,7 +321,8 @@ class Model(pl.LightningModule):
         y_hat = self.forward(x)
         loss = DiceLoss()(y_hat, y) + nn.L1Loss()(y_hat, y)
         vis_images = torch.cat([x, y, y_hat], dim=-1)#[:8]
-        vis_images = vis_images[:,:,56,:,:]
+        mid = int(y.shape[2]/2)
+        vis_images = vis_images[:,:,mid,:,:]
         grid = torchvision.utils.make_grid(vis_images, nrow=2, padding=0)
         self.logger.experiment.add_image('train_vis', grid, self.current_epoch)
         tensorboard_logs = {'train_loss': loss}
@@ -361,7 +336,8 @@ class Model(pl.LightningModule):
         y_hat = self.forward(x)
         loss = DiceLoss()(y_hat, y) + nn.L1Loss()(y_hat, y)
         vis_images = torch.cat([x, y, y_hat], dim=-1)#[:8]
-        vis_images = vis_images[:,:,56,:,:]
+        mid = int(y.shape[2]/2)
+        vis_images = vis_images[:,:,mid,:,:]
         grid = torchvision.utils.make_grid(vis_images, nrow=2, padding=0)
         self.logger.experiment.add_image('valid_vis', grid, self.current_epoch)
         return {'val_loss': loss}
@@ -375,13 +351,13 @@ class Model(pl.LightningModule):
         return torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
 
     def __dataloader(self):
-        train_tfm = None
-        valid_tfm = None
+        # train_tfm = None
+        # valid_tfm = None
         train_tfm = AB.Compose([
             # AB.ToFloat(), 
             # AB.Rotate(limit=20, border_mode=cv2.BORDER_CONSTANT, p=1.0),
             # AB.Resize(height=512, width=512, p=1.0), 
-            # AB.CropNonEmptyMaskIfExists(height=480, width=480, p=0.8), 
+            # AB.CropNonEmptyMaskIfExists(height=320, width=320, p=0.8), 
             # AB.RandomScale(scale_limit=(0.8, 1.2), p=0.8),
             # AB.Equalize(p=0.8),
             # AB.CLAHE(p=0.8),
@@ -389,7 +365,7 @@ class Model(pl.LightningModule):
             AB.RandomGamma(gamma_limit=(80, 120), p=0.8),
             AB.GaussianBlur(p=0.8),
             AB.GaussNoise(p=0.8),
-            # AB.Resize(width=self.hparams.dimy, height=self.hparams.dimx, p=1.0),
+            AB.Resize(width=self.hparams.dimy, height=self.hparams.dimx, p=1.0),
             # AB.ToTensor(),
         ])
         valid_tfm = AB.Compose([
@@ -475,7 +451,8 @@ def main(hparams):
         max_epochs=hparams.epochs,
         accumulate_grad_batches=hparams.grad_batches,
         distributed_backend=hparams.distributed_backend,
-        precision=16 if hparams.use_amp else 32,
+        precision=16 if hparams.use_amp else 32, 
+        profiler=True
     )
 
     trainer.fit(model)
@@ -486,14 +463,14 @@ if __name__ == '__main__':
     parser = ArgumentParser(add_help=False)
     parser.add_argument('--dimx', type=int, default=256)
     parser.add_argument('--dimy', type=int, default=256)
-    parser.add_argument('--dimz', type=int, default=128)
+    parser.add_argument('--dimz', type=int, default=64)
     parser.add_argument('--lgdir', type=str, default='lightning_logs')
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument("--gpus", type=int, default=-1, help="number of available GPUs")
     parser.add_argument('--distributed-backend', type=str, default='dp', choices=('dp', 'ddp', 'ddp2'),
                         help='supports three options dp, ddp, ddp2')
     parser.add_argument('--use_amp', action='store_true', help='if true uses 16 bit precision')
-    parser.add_argument("--batch_size", type=int, default=2, help="size of the batches")
+    parser.add_argument("--batch_size", type=int, default=4, help="size of the batches")
     parser.add_argument("--num_workers", type=int, default=4, help="size of the workers")
     parser.add_argument("--lr", type=float, default=0.002, help="learning rate")
     parser.add_argument("--nb_layer", type=int, default=5, help="number of layers on u-net")
@@ -507,13 +484,14 @@ if __name__ == '__main__':
     parser = Model.add_model_specific_args(parser)
     hparams = parser.parse_args()
 
-    random.seed(hparams.seed)
-    os.environ['PYTHONHASHSEED'] = str(hparams.seed)
-    np.random.seed(hparams.seed)
-    torch.manual_seed(hparams.seed)
-    torch.cuda.manual_seed(hparams.seed)
-    torch.cuda.manual_seed_all(hparams.seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+    if hparams.seed:
+        random.seed(hparams.seed)
+        os.environ['PYTHONHASHSEED'] = str(hparams.seed)
+        np.random.seed(hparams.seed)
+        torch.manual_seed(hparams.seed)
+        torch.cuda.manual_seed(hparams.seed)
+        torch.cuda.manual_seed_all(hparams.seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
 
     main(hparams)
