@@ -412,6 +412,7 @@ class Model(pl.LightningModule):
         self.example_input_array = torch.rand(2, 1, 256, 256), torch.rand(2, 64, 256, 256), \
                                    torch.rand(2, 1, 256, 256), torch.rand(2, 64, 256, 256)
         self.hparams = hparams
+        self.learning_rate = self.hparams.lr
         self.inet = INet(
             source_channels=1, 
             output_channels=1, num_filters=self.hparams.features
@@ -440,10 +441,10 @@ class Model(pl.LightningModule):
         a = a / 255.0
         b = b / 255.0
         xy, yx, ab, aba, ba, bab = self.forward(x, y, a, b)
-        loss = nn.MSELoss(reduction='mean')(xy, y) \
-             + nn.MSELoss(reduction='mean')(yx, x) \
-             + nn.MSELoss(reduction='mean')(aba, a) \
-             + nn.MSELoss(reduction='mean')(bab, b) 
+        loss = nn.L1Loss(reduction='mean')(xy, y) \
+             + nn.L1Loss(reduction='mean')(yx, x) \
+             + nn.L1Loss(reduction='mean')(aba, a) \
+             + nn.L1Loss(reduction='mean')(bab, b) 
         # DiceLoss()(xy, y) + 
         # DiceLoss()(yx, x) + 
         # DiceLoss()(aba, a) +
@@ -455,7 +456,7 @@ class Model(pl.LightningModule):
                                 ], dim=-2) 
         grid = torchvision.utils.make_grid(vis_images, nrow=2, padding=0)
         self.logger.experiment.add_image('train_vis', grid, self.current_epoch)
-        tensorboard_logs = {'train_loss': loss}
+        tensorboard_logs = {'train_loss': loss, 'lr': self.learning_rate}
         return {'loss': loss, 'log': tensorboard_logs}
 
     def validation_step(self, batch, batch_nb):
@@ -465,10 +466,10 @@ class Model(pl.LightningModule):
         a = a / 255.0
         b = b / 255.0
         xy, yx, ab, aba, ba, bab = self.forward(x, y, a, b)
-        loss = nn.MSELoss(reduction='mean')(xy, y) \
-             + nn.MSELoss(reduction='mean')(yx, x) \
-             + nn.MSELoss(reduction='mean')(aba, a) \
-             + nn.MSELoss(reduction='mean')(bab, b) 
+        loss = nn.L1Loss(reduction='mean')(xy, y) \
+             + nn.L1Loss(reduction='mean')(yx, x) \
+             + nn.L1Loss(reduction='mean')(aba, a) \
+             + nn.L1Loss(reduction='mean')(bab, b) 
         # DiceLoss()(xy, y) + 
         # DiceLoss()(yx, x) + 
         # DiceLoss()(aba, a) +
@@ -488,7 +489,7 @@ class Model(pl.LightningModule):
         return {'avg_val_loss': avg_loss, 'log': tensorboard_logs}
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
+        return torch.optim.Adam(self.parameters(), lr=self.learning_rate)
 
     def __dataloader(self):
         # train_tfm = None
@@ -540,7 +541,7 @@ class Model(pl.LightningModule):
             num_workers=self.hparams.num_workers, 
             batch_size=self.hparams.batch_size, 
             pin_memory=True, 
-            shuffle=True
+            shuffle=False
         )
         # print(len(train_loader), len(valid_loader))
         return {
@@ -591,6 +592,7 @@ def main(hparams):
         verbose=True,
     )
     trainer = Trainer(
+        auto_lr_find=False,
         checkpoint_callback=checkpoint_callback,
         early_stop_callback=stop_callback,
         gpus=hparams.gpus,
@@ -619,13 +621,13 @@ if __name__ == '__main__':
     parser.add_argument('--use_amp', default=True, action='store_true', help='if true uses 16 bit precision')
     parser.add_argument("--batch_size", type=int, default=2, help="size of the batches")
     parser.add_argument("--num_workers", type=int, default=8, help="size of the workers")
-    parser.add_argument("--lr", type=float, default=0.002, help="learning rate")
+    parser.add_argument("--lr", type=float, default=0.0005248074602497723, help="learning rate")
     parser.add_argument("--nb_layer", type=int, default=5, help="number of layers on u-net")
     parser.add_argument("--features", type=int, default=32, help="number of features in single layer")
     parser.add_argument("--bilinear", action='store_true', default=False,
                         help="whether to use bilinear interpolation or transposed")
     parser.add_argument("--grad_batches", type=int, default=1, help="number of batches to accumulate")
-    parser.add_argument("--epochs", type=int, default=300, help="number of epochs to train")
+    parser.add_argument("--epochs", type=int, default=500, help="number of epochs to train")
     parser.add_argument("--log_wandb", action='store_true', help="log training on Weights & Biases")
     
     parser = Model.add_model_specific_args(parser)
