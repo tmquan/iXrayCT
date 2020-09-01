@@ -37,25 +37,36 @@ import warnings
 warnings.filterwarnings('ignore', '.*output shape of zoom.*')
 
 train_image_paired_dir = ['/u01/data/iXrayCT_COVID/data_resized/train/paired/RADIOPAEDIA/pos/xr2/', 
-                          '/u01/data/iXrayCT_COVID/data_resized/train/paired/RADIOPAEDIA/neg/xr2/']
+                          '/u01/data/iXrayCT_COVID/data_resized/train/paired/RADIOPAEDIA/neg/xr2/'
+                          ]
 train_label_paired_dir = ['/u01/data/iXrayCT_COVID/data_resized/train/paired/RADIOPAEDIA/pos/ct3/', 
-                          '/u01/data/iXrayCT_COVID/data_resized/train/paired/RADIOPAEDIA/neg/ct3/']
+                          '/u01/data/iXrayCT_COVID/data_resized/train/paired/RADIOPAEDIA/neg/ct3/'
+                          ]
 valid_image_paired_dir = ['/u01/data/iXrayCT_COVID/data_resized/test/paired/RADIOPAEDIA/pos/xr2/', 
-                          '/u01/data/iXrayCT_COVID/data_resized/test/paired/RADIOPAEDIA/neg/xr2/']
+                          '/u01/data/iXrayCT_COVID/data_resized/test/paired/RADIOPAEDIA/neg/xr2/'
+                          ]
 valid_label_paired_dir = ['/u01/data/iXrayCT_COVID/data_resized/test/paired/RADIOPAEDIA/pos/ct3/', 
-                          '/u01/data/iXrayCT_COVID/data_resized/test/paired/RADIOPAEDIA/neg/ct3/']
+                          '/u01/data/iXrayCT_COVID/data_resized/test/paired/RADIOPAEDIA/neg/ct3/'
+                          ]
 
 train_image_unpaired_dir = ['/u01/data/iXrayCT_COVID/data_resized/train/unpaired/RADIOPAEDIA/pos/xr2/', 
                             '/u01/data/iXrayCT_COVID/data_resized/train/unpaired/RADIOPAEDIA/neg/xr2/',
                             '/u01/data/iXrayCT_COVID/data_resized/train/unpaired/IEEE8023/pos/xr2/',
-                            '/u01/data/iXrayCT_COVID/data_resized/train/unpaired/NLMMC/neg/xr2/',]
+                            '/u01/data/iXrayCT_COVID/data_resized/train/unpaired/IEEE8023/neg/xr2/',
+                            '/u01/data/iXrayCT_COVID/data_resized/train/unpaired/NLMMC/neg/xr2/',
+                            ]
 train_label_unpaired_dir = ['/u01/data/iXrayCT_COVID/data_resized/train/unpaired/RADIOPAEDIA/pos/ct3/', 
                             '/u01/data/iXrayCT_COVID/data_resized/train/unpaired/RADIOPAEDIA/neg/ct3/',
-                            '/u01/data/iXrayCT_COVID/data_resized/train/unpaired/MOSMED/pos/ct3/',]
+                            '/u01/data/iXrayCT_COVID/data_resized/train/unpaired/MOSMED/pos/ct3/',
+                            '/u01/data/iXrayCT_COVID/data_resized/train/unpaired/LNDB/neg/ct3/',
+                            '/u01/data/iXrayCT_COVID/data_resized/train/unpaired/DSB3/neg/ct3/',
+                            ]
 valid_image_unpaired_dir = ['/u01/data/iXrayCT_COVID/data_resized/test/unpaired/RADIOPAEDIA/pos/xr2/', 
-                            '/u01/data/iXrayCT_COVID/data_resized/test/unpaired/RADIOPAEDIA/neg/xr2/']
+                            '/u01/data/iXrayCT_COVID/data_resized/test/unpaired/RADIOPAEDIA/neg/xr2/',
+                            ]
 valid_label_unpaired_dir = ['/u01/data/iXrayCT_COVID/data_resized/test/unpaired/RADIOPAEDIA/pos/ct3/', 
-                            '/u01/data/iXrayCT_COVID/data_resized/test/unpaired/RADIOPAEDIA/neg/ct3/']
+                            '/u01/data/iXrayCT_COVID/data_resized/test/unpaired/RADIOPAEDIA/neg/ct3/',
+                            ]
 
 
 
@@ -103,8 +114,6 @@ def dice_loss(input, target, eps=1e-8):
     dice_score = 2. * intersection / (cardinality + eps)
     return torch.mean(-dice_score + 1.)
 
-
-
 class DiceLoss(nn.Module):
     r"""Criterion that computes Sørensen-Dice Coefficient loss.
     According to [1], we compute the Sørensen-Dice Coefficient as follows:
@@ -144,7 +153,7 @@ class CustomNativeDataset(Dataset):
         imageunpaireddir, 
         labelunpaireddir, 
         train_or_valid='train',
-        size=100, 
+        size=1000, 
         transforms=None
     ):
         # print('\n')
@@ -169,7 +178,7 @@ class CustomNativeDataset(Dataset):
         
         print(len(self.imagepairedfiles), len(self.labelpairedfiles), \
               len(self.imageunpairedfiles), len(self.labelunpairedfiles))
-        
+
     def __len__(self):
         return self.size if self.is_train else len(self.imagepairedfiles)
  
@@ -405,11 +414,11 @@ class Model(pl.LightningModule):
         self.hparams = hparams
         self.inet = INet(
             source_channels=1, 
-            output_channels=1
+            output_channels=1, num_filters=self.hparams.features
         )
         self.pnet = PNet(
             source_channels=1, 
-            output_channels=1
+            output_channels=1, num_filters=self.hparams.features
         )
 
     def forward(self, x, y, a, b):
@@ -431,10 +440,14 @@ class Model(pl.LightningModule):
         a = a / 255.0
         b = b / 255.0
         xy, yx, ab, aba, ba, bab = self.forward(x, y, a, b)
-        loss = DiceLoss()(xy, y) + nn.L1Loss(reduction='mean')(xy, y) \
-             + DiceLoss()(yx, x) + nn.L1Loss(reduction='mean')(yx, x) \
-             + DiceLoss()(aba, a) + nn.L1Loss(reduction='mean')(aba, a) \
-             + DiceLoss()(bab, b) + nn.L1Loss(reduction='mean')(bab, b) 
+        loss = nn.MSELoss(reduction='mean')(xy, y) \
+             + nn.MSELoss(reduction='mean')(yx, x) \
+             + nn.MSELoss(reduction='mean')(aba, a) \
+             + nn.MSELoss(reduction='mean')(bab, b) 
+        # DiceLoss()(xy, y) + 
+        # DiceLoss()(yx, x) + 
+        # DiceLoss()(aba, a) +
+        # DiceLoss()(bab, b) +
         mid = int(y.shape[1]/2)
         vis_images = torch.cat([torch.cat([x, y[:,mid:mid+1,:,:], xy[:,mid:mid+1,:,:], yx], dim=-1), 
                                 torch.cat([a, b[:,mid:mid+1,:,:], ab[:,mid:mid+1,:,:], aba], dim=-1), 
@@ -452,10 +465,14 @@ class Model(pl.LightningModule):
         a = a / 255.0
         b = b / 255.0
         xy, yx, ab, aba, ba, bab = self.forward(x, y, a, b)
-        loss = DiceLoss()(xy, y) + nn.L1Loss(reduction='mean')(xy, y) \
-             + DiceLoss()(yx, x) + nn.L1Loss(reduction='mean')(yx, x) \
-             + DiceLoss()(aba, a) + nn.L1Loss(reduction='mean')(aba, a) \
-             + DiceLoss()(bab, b) + nn.L1Loss(reduction='mean')(bab, b) 
+        loss = nn.MSELoss(reduction='mean')(xy, y) \
+             + nn.MSELoss(reduction='mean')(yx, x) \
+             + nn.MSELoss(reduction='mean')(aba, a) \
+             + nn.MSELoss(reduction='mean')(bab, b) 
+        # DiceLoss()(xy, y) + 
+        # DiceLoss()(yx, x) + 
+        # DiceLoss()(aba, a) +
+        # DiceLoss()(bab, b) +
         mid = int(y.shape[1]/2)
         vis_images = torch.cat([torch.cat([x, y[:,mid:mid+1,:,:], xy[:,mid:mid+1,:,:], yx], dim=-1), 
                                 torch.cat([a, b[:,mid:mid+1,:,:], ab[:,mid:mid+1,:,:], aba], dim=-1), 
@@ -479,7 +496,7 @@ class Model(pl.LightningModule):
         train_tfm = AB.Compose([
             # AB.ToFloat(), 
             # AB.Rotate(limit=30, border_mode=cv2.BORDER_CONSTANT, p=1.0),
-            # AB.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.15, rotate_limit=30, border_mode=cv2.BORDER_CONSTANT, p=0.8),
+            # AB.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0., rotate_limit=0, border_mode=cv2.BORDER_CONSTANT, p=0.9),
             # AB.Resize(height=512, width=512, p=1.0), 
             # AB.CropNonEmptyMaskIfExists(height=320, width=320, p=0.8), 
             # AB.RandomScale(scale_limit=(0.8, 1.2), p=0.8),
@@ -511,19 +528,21 @@ class Model(pl.LightningModule):
                                        labelunpaireddir=valid_label_unpaired_dir, 
                                        train_or_valid='valid', 
                                        transforms=valid_tfm)
+        
 
         train_loader = DataLoader(train_ds, 
             num_workers=self.hparams.num_workers, 
             batch_size=self.hparams.batch_size, 
-            pin_memory=False, 
+            pin_memory=True, 
             shuffle=True
         )
         valid_loader = DataLoader(valid_ds, 
             num_workers=self.hparams.num_workers, 
             batch_size=self.hparams.batch_size, 
-            pin_memory=False, 
-            shuffle=False
+            pin_memory=True, 
+            shuffle=True
         )
+        # print(len(train_loader), len(valid_loader))
         return {
             'train': train_loader, 
             'valid': valid_loader, 
@@ -595,14 +614,14 @@ if __name__ == '__main__':
     parser.add_argument('--lgdir', type=str, default='lightning_logs')
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument("--gpus", type=int, default=-1, help="number of available GPUs")
-    parser.add_argument('--distributed-backend', type=str, default='dp', choices=('dp', 'ddp', 'ddp2'),
+    parser.add_argument('--distributed-backend', type=str, default='ddp', choices=('dp', 'ddp', 'ddp2'),
                         help='supports three options dp, ddp, ddp2')
-    parser.add_argument('--use_amp', action='store_true', help='if true uses 16 bit precision')
-    parser.add_argument("--batch_size", type=int, default=1, help="size of the batches")
-    parser.add_argument("--num_workers", type=int, default=4, help="size of the workers")
+    parser.add_argument('--use_amp', default=True, action='store_true', help='if true uses 16 bit precision')
+    parser.add_argument("--batch_size", type=int, default=2, help="size of the batches")
+    parser.add_argument("--num_workers", type=int, default=8, help="size of the workers")
     parser.add_argument("--lr", type=float, default=0.002, help="learning rate")
     parser.add_argument("--nb_layer", type=int, default=5, help="number of layers on u-net")
-    parser.add_argument("--features", type=int, default=24, help="number of features in single layer")
+    parser.add_argument("--features", type=int, default=32, help="number of features in single layer")
     parser.add_argument("--bilinear", action='store_true', default=False,
                         help="whether to use bilinear interpolation or transposed")
     parser.add_argument("--grad_batches", type=int, default=1, help="number of batches to accumulate")
@@ -620,6 +639,6 @@ if __name__ == '__main__':
         torch.cuda.manual_seed(hparams.seed)
         torch.cuda.manual_seed_all(hparams.seed)
         torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.benchmark = True
 
     main(hparams)
