@@ -154,6 +154,10 @@ class DiceLoss(nn.Module):
     def forward(self, input, target):
         return dice_loss(input, target, self.eps)
 
+def worker_init_fn(worker_id):                                                          
+    # np.random.seed(np.random.get_state()[1][0] + worker_id)
+    torch.initial_seed()
+
 class CustomNativeDataset(Dataset):
     def __init__(self, 
         imagepaireddir, 
@@ -194,12 +198,12 @@ class CustomNativeDataset(Dataset):
         np.random.seed(datetime.datetime.now().second + datetime.datetime.now().millisecond)
         
     def __getitem__(self, idx):
-        pidx = np.random.randint(len(self.imagepairedfiles))
+        pidx = torch.randint(len(self.imagepairedfiles), (1, 1)) #np.random.randint(len(self.imagepairedfiles))
         imagepaired = skimage.io.imread(self.imagepairedfiles[pidx])
         labelpaired = skimage.io.imread(self.labelpairedfiles[pidx])
 
-        aidx = np.random.randint(len(self.imageunpairedfiles))
-        bidx = np.random.randint(len(self.labelunpairedfiles))
+        aidx = torch.randint(len(self.imageunpairedfiles), (1, 1)) #np.random.randint(len(self.imageunpairedfiles))
+        bidx = torch.randint(len(self.labelunpairedfiles), (1, 1)) #np.random.randint(len(self.labelunpairedfiles))
         imageunpaired = skimage.io.imread(self.imageunpairedfiles[aidx])
         labelunpaired = skimage.io.imread(self.labelunpairedfiles[bidx])
 
@@ -644,13 +648,15 @@ class Model(pl.LightningModule):
             num_workers=self.hparams.num_workers, 
             batch_size=self.hparams.batch_size, 
             pin_memory=True, 
-            shuffle=True
+            shuffle=True, 
+            worker_init_fn=worker_init_fn
         )
         valid_loader = DataLoader(valid_ds, 
             num_workers=self.hparams.num_workers, 
             batch_size=self.hparams.batch_size, 
             pin_memory=True, 
-            shuffle=False
+            shuffle=False, 
+            worker_init_fn=worker_init_fn
         )
         # print(len(train_loader), len(valid_loader))
         return {
