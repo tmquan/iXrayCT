@@ -339,7 +339,7 @@ class DoubleDeconv3d(nn.Module):
             PixelShuffle(2),
             nn.BatchNorm3d(output_channels),
             nn.LeakyReLU(inplace=True),
-            nn.Dropout(),
+            # nn.Dropout(),
         )
         self.net = nn.Sequential(
             # nn.ConvTranspose3d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
@@ -390,7 +390,7 @@ class DoubleDeconv2d(nn.Module):
             PixelShuffle(2),
             nn.BatchNorm2d(output_channels),
             nn.LeakyReLU(inplace=True),
-            nn.Dropout(),
+            # nn.Dropout(),
         )
         self.net = nn.Sequential(
             # nn.ConvTranspose2d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
@@ -421,6 +421,7 @@ class INet(nn.Module):
             nn.Conv2d(num_filters*64, num_filters*64, kernel_size=1, stride=1, padding=0, bias=False),
             nn.BatchNorm2d(num_filters*64),
             nn.LeakyReLU(inplace=True),
+            nn.Dropout(),
             Reshape(num_filters*32, 2, 8, 8),
             nn.ConvTranspose3d(num_filters*32, num_filters*32, kernel_size=1, stride=1, padding=0, bias=False),
             nn.BatchNorm3d(num_filters*32),
@@ -460,6 +461,7 @@ class PNet(nn.Module):
             nn.Conv3d(num_filters*32, num_filters*32, kernel_size=1, stride=1, padding=0, bias=False),
             nn.BatchNorm3d(num_filters*32),
             nn.LeakyReLU(inplace=True),
+            nn.Dropout(),
             Reshape(num_filters*64, 8, 8),
             nn.ConvTranspose2d(num_filters*64, num_filters*64, kernel_size=1, stride=1, padding=0, bias=False),
             nn.BatchNorm2d(num_filters*64),
