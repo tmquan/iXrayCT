@@ -435,11 +435,9 @@ class INet(nn.Module):
             DoubleDeconv3d(num_filters*2, num_filters*1),
             # nn.ConvTranspose3d(num_filters*1, output_channels, kernel_size=1, stride=1, padding=0, bias=False),
             nn.Conv3d(num_filters*1, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
-            nn.BatchNorm3d(1),
             nn.LeakyReLU(inplace=True),
             Squeeze(dim=1),
             nn.Conv2d(64, 64, kernel_size=1, stride=1, padding=0, bias=False),
-            nn.BatchNorm2d(64),
             nn.Tanh()
         )
     
@@ -479,7 +477,6 @@ class PNet(nn.Module):
             nn.BatchNorm2d(num_filters*1),
             nn.LeakyReLU(inplace=True),
             nn.Conv2d(num_filters*1, output_channels, kernel_size=1, stride=1, padding=0, bias=False),
-            nn.BatchNorm2d(1),
             nn.Tanh(),
         ])
     def forward(self, x):
@@ -590,8 +587,8 @@ class Model(pl.LightningModule):
             # AB.RandomScale(scale_limit=(0.8, 1.2), p=0.8),
             # AB.Equalize(p=0.8),
             # AB.CLAHE(p=0.8),
-            AB.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.9),
-            AB.RandomGamma(gamma_limit=(80, 120), p=0.9),
+            AB.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.05),
+            AB.RandomGamma(gamma_limit=(80, 120), p=0.05),
             AB.GaussianBlur(p=0.05),
             AB.GaussNoise(p=0.05),
             AB.Resize(width=self.hparams.dimy, height=self.hparams.dimx, p=1.0),
@@ -606,8 +603,8 @@ class Model(pl.LightningModule):
             # AB.RandomScale(scale_limit=(0.8, 1.2), p=0.8),
             # AB.Equalize(p=0.8),
             # AB.CLAHE(p=0.8),
-            AB.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.9),
-            AB.RandomGamma(gamma_limit=(80, 120), p=0.9),
+            AB.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.05),
+            AB.RandomGamma(gamma_limit=(80, 120), p=0.05),
             AB.GaussianBlur(p=0.05),
             AB.GaussNoise(p=0.05),
             AB.Resize(width=self.hparams.dimy, height=self.hparams.dimx, p=1.0),
@@ -729,7 +726,7 @@ if __name__ == '__main__':
     parser.add_argument("--features", type=int, default=32, help="number of features in single layer")
     parser.add_argument("--bilinear", action='store_true', default=False,
                         help="whether to use bilinear interpolation or transposed")
-    parser.add_argument("--grad_batches", type=int, default=10, help="number of batches to accumulate")
+    parser.add_argument("--grad_batches", type=int, default=1, help="number of batches to accumulate")
     parser.add_argument("--epochs", type=int, default=500, help="number of epochs to train")
     parser.add_argument("--log_wandb", action='store_true', help="log training on Weights & Biases")
     
