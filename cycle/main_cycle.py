@@ -7,7 +7,7 @@ from collections import OrderedDict
 
 from natsort import natsorted
 from tqdm import tqdm
-
+import datetime
 import random
 import numpy as np
 import cv2, skimage.io, skimage.transform, skimage.exposure
@@ -189,7 +189,10 @@ class CustomNativeDataset(Dataset):
 
     def __len__(self):
         return self.size if self.is_train else len(self.imagepairedfiles)
- 
+    
+    def __call__(self):
+        np.random.seed(datetime.datetime.now().second + datetime.datetime.now().millisecond)
+        
     def __getitem__(self, idx):
         pidx = np.random.randint(len(self.imagepairedfiles))
         imagepaired = skimage.io.imread(self.imagepairedfiles[pidx])
@@ -335,8 +338,10 @@ class DoubleDeconv3d(nn.Module):
         super().__init__()
         self.pre = nn.Sequential(
             # nn.ConvTranspose3d(source_channels, output_channels, kernel_size=2, stride=2, padding=0, bias=False),
-            nn.Conv3d(source_channels, output_channels*8, kernel_size=3, stride=1, padding=1, bias=False),
-            PixelShuffle(2),
+            # nn.Conv3d(source_channels, output_channels*8, kernel_size=3, stride=1, padding=1, bias=False),
+            # PixelShuffle(2),
+            nn.Conv3d(source_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.Upsample(scale_factor=2, mode='trilinear'),
             nn.BatchNorm3d(output_channels),
             nn.LeakyReLU(inplace=True),
             # nn.Dropout(),
@@ -386,8 +391,10 @@ class DoubleDeconv2d(nn.Module):
         super().__init__()
         self.pre = nn.Sequential(
             # nn.ConvTranspose2d(source_channels, output_channels, kernel_size=2, stride=2, padding=0, bias=False),
-            nn.Conv2d(source_channels, output_channels*4, kernel_size=3, stride=1, padding=1, bias=False),
-            PixelShuffle(2),
+            # nn.Conv2d(source_channels, output_channels*4, kernel_size=3, stride=1, padding=1, bias=False),
+            # PixelShuffle(2),
+            nn.Conv2d(source_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.Upsample(scale_factor=2, mode='bilinear'),
             nn.BatchNorm2d(output_channels),
             nn.LeakyReLU(inplace=True),
             # nn.Dropout(),
@@ -423,7 +430,8 @@ class INet(nn.Module):
             nn.LeakyReLU(inplace=True),
             nn.Dropout(),
             Reshape(num_filters*32, 2, 8, 8),
-            nn.ConvTranspose3d(num_filters*32, num_filters*32, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.Conv3d(num_filters*32, num_filters*32, kernel_size=1, stride=1, padding=0, bias=False),
+            # nn.ConvTranspose3d(num_filters*32, num_filters*32, kernel_size=1, stride=1, padding=0, bias=False),
             nn.BatchNorm3d(num_filters*32),
             nn.LeakyReLU(inplace=True),
 
@@ -462,7 +470,8 @@ class PNet(nn.Module):
             nn.LeakyReLU(inplace=True),
             nn.Dropout(),
             Reshape(num_filters*64, 8, 8),
-            nn.ConvTranspose2d(num_filters*64, num_filters*64, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.Conv2d(num_filters*64, num_filters*64, kernel_size=1, stride=1, padding=0, bias=False),
+            # nn.ConvTranspose2d(num_filters*64, num_filters*64, kernel_size=1, stride=1, padding=0, bias=False),
             nn.BatchNorm2d(num_filters*64),
             nn.LeakyReLU(inplace=True),
             
@@ -587,8 +596,8 @@ class Model(pl.LightningModule):
             # AB.RandomScale(scale_limit=(0.8, 1.2), p=0.8),
             # AB.Equalize(p=0.8),
             # AB.CLAHE(p=0.8),
-            AB.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.05),
-            AB.RandomGamma(gamma_limit=(80, 120), p=0.05),
+            AB.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.50),
+            AB.RandomGamma(gamma_limit=(80, 120), p=0.50),
             AB.GaussianBlur(p=0.05),
             AB.GaussNoise(p=0.05),
             AB.Resize(width=self.hparams.dimy, height=self.hparams.dimx, p=1.0),
@@ -603,8 +612,8 @@ class Model(pl.LightningModule):
             # AB.RandomScale(scale_limit=(0.8, 1.2), p=0.8),
             # AB.Equalize(p=0.8),
             # AB.CLAHE(p=0.8),
-            AB.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.05),
-            AB.RandomGamma(gamma_limit=(80, 120), p=0.05),
+            AB.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.50),
+            AB.RandomGamma(gamma_limit=(80, 120), p=0.50),
             AB.GaussianBlur(p=0.05),
             AB.GaussNoise(p=0.05),
             AB.Resize(width=self.hparams.dimy, height=self.hparams.dimx, p=1.0),
