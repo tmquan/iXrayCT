@@ -433,7 +433,8 @@ class INet(nn.Module):
             DoubleDeconv3d(num_filters*8, num_filters*4),
             DoubleDeconv3d(num_filters*4, num_filters*2),
             DoubleDeconv3d(num_filters*2, num_filters*1),
-            nn.ConvTranspose3d(num_filters*1, output_channels, kernel_size=1, stride=1, padding=0, bias=False),
+            # nn.ConvTranspose3d(num_filters*1, output_channels, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.Conv3d(num_filters*1, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
             nn.BatchNorm3d(1),
             nn.LeakyReLU(inplace=True),
             Squeeze(dim=1),
@@ -473,10 +474,11 @@ class PNet(nn.Module):
             DoubleDeconv2d(num_filters*16, num_filters*8), #64
             DoubleDeconv2d(num_filters*8, num_filters*4), #128
             DoubleDeconv2d(num_filters*4, num_filters*2), #256
-            nn.ConvTranspose2d(num_filters*2, num_filters*1, kernel_size=1, stride=1, padding=0, bias=False),
+            # nn.ConvTranspose2d(num_filters*2, num_filters*1, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.Conv2d(num_filters*2, num_filters*1, kernel_size=3, stride=1, padding=1, bias=False),
             nn.BatchNorm2d(num_filters*1),
             nn.LeakyReLU(inplace=True),
-            nn.ConvTranspose2d(num_filters*1, output_channels, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.Conv2d(num_filters*1, output_channels, kernel_size=1, stride=1, padding=0, bias=False),
             nn.BatchNorm2d(1),
             nn.Tanh(),
         ])
