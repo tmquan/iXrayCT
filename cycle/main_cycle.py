@@ -37,35 +37,43 @@ import warnings
 warnings.filterwarnings('ignore', '.*output shape of zoom.*')
 
 train_image_paired_dir = ['/u01/data/iXrayCT_COVID/data_resized/train/paired/RADIOPAEDIA/pos/xr2/', 
-                          '/u01/data/iXrayCT_COVID/data_resized/train/paired/RADIOPAEDIA/neg/xr2/'
+                          '/u01/data/iXrayCT_COVID/data_resized/train/paired/RADIOPAEDIA/neg/xr2/',
+                          '/u01/data/iXrayCT_COVID/data_resized/train/paired/BIMCV/pos/xr2/', 
                           ]
 train_label_paired_dir = ['/u01/data/iXrayCT_COVID/data_resized/train/paired/RADIOPAEDIA/pos/ct3/', 
-                          '/u01/data/iXrayCT_COVID/data_resized/train/paired/RADIOPAEDIA/neg/ct3/'
+                          '/u01/data/iXrayCT_COVID/data_resized/train/paired/RADIOPAEDIA/neg/ct3/',
+                          '/u01/data/iXrayCT_COVID/data_resized/train/paired/BIMCV/pos/ct3/', 
                           ]
 valid_image_paired_dir = ['/u01/data/iXrayCT_COVID/data_resized/test/paired/RADIOPAEDIA/pos/xr2/', 
-                          '/u01/data/iXrayCT_COVID/data_resized/test/paired/RADIOPAEDIA/neg/xr2/'
+                          '/u01/data/iXrayCT_COVID/data_resized/test/paired/RADIOPAEDIA/neg/xr2/',
+                          '/u01/data/iXrayCT_COVID/data_resized/test/paired/BIMCV/pos/xr2/', 
                           ]
 valid_label_paired_dir = ['/u01/data/iXrayCT_COVID/data_resized/test/paired/RADIOPAEDIA/pos/ct3/', 
-                          '/u01/data/iXrayCT_COVID/data_resized/test/paired/RADIOPAEDIA/neg/ct3/'
+                          '/u01/data/iXrayCT_COVID/data_resized/test/paired/RADIOPAEDIA/neg/ct3/',
+                          '/u01/data/iXrayCT_COVID/data_resized/test/paired/BIMCV/pos/ct3/', 
                           ]
 
-train_image_unpaired_dir = ['/u01/data/iXrayCT_COVID/data_resized/train/unpaired/RADIOPAEDIA/pos/xr2/', 
-                            '/u01/data/iXrayCT_COVID/data_resized/train/unpaired/RADIOPAEDIA/neg/xr2/',
+train_image_unpaired_dir = ['/u01/data/iXrayCT_COVID/data_resized/train/paired/RADIOPAEDIA/pos/xr2/', 
+                            '/u01/data/iXrayCT_COVID/data_resized/train/paired/RADIOPAEDIA/neg/xr2/',
                             '/u01/data/iXrayCT_COVID/data_resized/train/unpaired/IEEE8023/pos/xr2/',
                             '/u01/data/iXrayCT_COVID/data_resized/train/unpaired/IEEE8023/neg/xr2/',
                             '/u01/data/iXrayCT_COVID/data_resized/train/unpaired/NLMMC/neg/xr2/',
+                            '/u01/data/iXrayCT_COVID/data_resized/train/paired/BIMCV/pos/xr2/', 
                             ]
-train_label_unpaired_dir = ['/u01/data/iXrayCT_COVID/data_resized/train/unpaired/RADIOPAEDIA/pos/ct3/', 
-                            '/u01/data/iXrayCT_COVID/data_resized/train/unpaired/RADIOPAEDIA/neg/ct3/',
+train_label_unpaired_dir = ['/u01/data/iXrayCT_COVID/data_resized/train/paired/RADIOPAEDIA/pos/ct3/', 
+                            '/u01/data/iXrayCT_COVID/data_resized/train/paired/RADIOPAEDIA/neg/ct3/',
                             '/u01/data/iXrayCT_COVID/data_resized/train/unpaired/MOSMED/pos/ct3/',
                             '/u01/data/iXrayCT_COVID/data_resized/train/unpaired/LNDB/neg/ct3/',
                             '/u01/data/iXrayCT_COVID/data_resized/train/unpaired/DSB3/neg/ct3/',
+                            '/u01/data/iXrayCT_COVID/data_resized/train/paired/BIMCV/pos/ct3/', 
                             ]
-valid_image_unpaired_dir = ['/u01/data/iXrayCT_COVID/data_resized/test/unpaired/RADIOPAEDIA/pos/xr2/', 
-                            '/u01/data/iXrayCT_COVID/data_resized/test/unpaired/RADIOPAEDIA/neg/xr2/',
+valid_image_unpaired_dir = ['/u01/data/iXrayCT_COVID/data_resized/test/paired/RADIOPAEDIA/pos/xr2/', 
+                            '/u01/data/iXrayCT_COVID/data_resized/test/paired/RADIOPAEDIA/neg/xr2/',
+                            '/u01/data/iXrayCT_COVID/data_resized/test/paired/BIMCV/pos/xr2/', 
                             ]
-valid_label_unpaired_dir = ['/u01/data/iXrayCT_COVID/data_resized/test/unpaired/RADIOPAEDIA/pos/ct3/', 
-                            '/u01/data/iXrayCT_COVID/data_resized/test/unpaired/RADIOPAEDIA/neg/ct3/',
+valid_label_unpaired_dir = ['/u01/data/iXrayCT_COVID/data_resized/test/paired/RADIOPAEDIA/pos/ct3/', 
+                            '/u01/data/iXrayCT_COVID/data_resized/test/paired/RADIOPAEDIA/neg/ct3/',
+                            '/u01/data/iXrayCT_COVID/data_resized/test/paired/BIMCV/pos/ct3/', 
                             ]
 
 
@@ -238,6 +246,63 @@ class Unsqueeze(nn.Module):
     def forward(self, x):
         return x.unsqueeze(self.dim)
 
+def pixel_shuffle(input, upscale_factor):
+    r"""Rearranges elements in a tensor of shape
+    ``[*, C, d_{1}, d_{2}, ..., d_{n}]`` to a tensor of shape
+    ``[*, C/(r^n), d_{1}*r, d_{2}*r, ..., d_{n}*r]``. Where ``n`` is the
+    dimensionality of the data.
+    
+    See :class:`~torch.nn.PixelShuffle` for details.
+    Args:
+        input (Variable): Input
+        upscale_factor (int): factor to increase spatial resolution by
+    Examples::
+        # 1D example
+        >>> ps = nn.PixelShuffle(2)
+        >>> input = autograd.Variable(torch.Tensor(1, 4, 8))
+        >>> output = ps(input)
+        >>> print(output.size())
+        torch.Size([1, 2, 16])
+        # 2D example
+        >>> ps = nn.PixelShuffle(3)
+        >>> input = autograd.Variable(torch.Tensor(1, 9, 8, 8))
+        >>> output = ps(input)
+        >>> print(output.size())
+        torch.Size([1, 1, 24, 24])
+        # 3D example
+        >>> ps = nn.PixelShuffle(2)
+        >>> input = autograd.Variable(torch.Tensor(1, 8, 16, 16, 16))
+        >>> output = ps(input)
+        >>> print(output.size())
+        torch.Size([1, 1, 32, 32, 32])
+    """
+    input_size = list(input.size())
+    dimensionality = len(input_size) - 2
+
+    input_size[1] //= (upscale_factor ** dimensionality)
+    output_size = [dim * upscale_factor for dim in input_size[2:]]
+
+    input_view = input.contiguous().view(
+        input_size[0], input_size[1],
+        *(([upscale_factor] * dimensionality) + input_size[2:])
+    )
+
+    indicies = list(range(2, 2 + 2 * dimensionality))
+    indicies = indicies[1::2] + indicies[0::2]
+
+    shuffle_out = input_view.permute(0, 1, *(indicies[::-1])).contiguous()
+    shuffle_out = shuffle_out.view(input_size[0], input_size[1], *output_size)
+    # print(shuffle_out.shape)
+    return shuffle_out
+
+class PixelShuffle(nn.Module):
+    def __init__(self, scale=2):
+        super().__init__()
+        self.scale = scale
+
+    def forward(self, x):
+        return pixel_shuffle(x, self.scale)
+
 class DoubleConv2d(nn.Module):
     def __init__(self, 
         source_channels=32, 
@@ -248,6 +313,7 @@ class DoubleConv2d(nn.Module):
             nn.Conv2d(source_channels, output_channels, kernel_size=4, stride=2, padding=1, bias=False),
             nn.BatchNorm2d(output_channels),
             nn.LeakyReLU(inplace=True),
+            nn.Dropout(),
         )
         self.net = nn.Sequential(
             nn.Conv2d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
@@ -268,12 +334,16 @@ class DoubleDeconv3d(nn.Module):
     ):
         super().__init__()
         self.pre = nn.Sequential(
-            nn.ConvTranspose3d(source_channels, output_channels, kernel_size=2, stride=2, padding=0, bias=False),
+            # nn.ConvTranspose3d(source_channels, output_channels, kernel_size=2, stride=2, padding=0, bias=False),
+            nn.Conv3d(source_channels, output_channels*8, kernel_size=3, stride=1, padding=1, bias=False),
+            PixelShuffle(2),
             nn.BatchNorm3d(output_channels),
-            nn.LeakyReLU(inplace=True)
+            nn.LeakyReLU(inplace=True),
+            nn.Dropout(),
         )
         self.net = nn.Sequential(
-            nn.ConvTranspose3d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
+            # nn.ConvTranspose3d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.Conv3d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
             nn.BatchNorm3d(output_channels),
             nn.LeakyReLU(inplace=True),
             nn.Dropout(),
@@ -293,7 +363,8 @@ class DoubleConv3d(nn.Module):
         self.pre = nn.Sequential(
             nn.Conv3d(source_channels, output_channels, kernel_size=4, stride=2, padding=1, bias=False),
             nn.BatchNorm3d(output_channels),
-            nn.LeakyReLU(inplace=True)
+            nn.LeakyReLU(inplace=True),
+            nn.Dropout(),
         )
         self.net = nn.Sequential(
             nn.Conv3d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
@@ -314,12 +385,16 @@ class DoubleDeconv2d(nn.Module):
     ):
         super().__init__()
         self.pre = nn.Sequential(
-            nn.ConvTranspose2d(source_channels, output_channels, kernel_size=2, stride=2, padding=0, bias=False),
+            # nn.ConvTranspose2d(source_channels, output_channels, kernel_size=2, stride=2, padding=0, bias=False),
+            nn.Conv2d(source_channels, output_channels*4, kernel_size=3, stride=1, padding=1, bias=False),
+            PixelShuffle(2),
             nn.BatchNorm2d(output_channels),
-            nn.LeakyReLU(inplace=True)
+            nn.LeakyReLU(inplace=True),
+            nn.Dropout(),
         )
         self.net = nn.Sequential(
-            nn.ConvTranspose2d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
+            # nn.ConvTranspose2d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.Conv2d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
             nn.BatchNorm2d(output_channels),
             nn.LeakyReLU(inplace=True),
             nn.Dropout(),
@@ -445,6 +520,10 @@ class Model(pl.LightningModule):
              + nn.L1Loss(reduction='mean')(yx, x) \
              + nn.L1Loss(reduction='mean')(aba, a) \
              + nn.L1Loss(reduction='mean')(bab, b) 
+        # loss = DiceLoss()(xy, y) +  nn.L1Loss(reduction='mean')(xy, y) \
+        #      + DiceLoss()(yx, x) +  nn.L1Loss(reduction='mean')(yx, x) \
+        #      + DiceLoss()(aba, a) + nn.L1Loss(reduction='mean')(aba, a) \
+        #      + DiceLoss()(bab, b) + nn.L1Loss(reduction='mean')(bab, b) 
         # DiceLoss()(xy, y) + 
         # DiceLoss()(yx, x) + 
         # DiceLoss()(aba, a) +
@@ -470,6 +549,10 @@ class Model(pl.LightningModule):
              + nn.L1Loss(reduction='mean')(yx, x) \
              + nn.L1Loss(reduction='mean')(aba, a) \
              + nn.L1Loss(reduction='mean')(bab, b) 
+        # loss = DiceLoss()(xy, y) +  nn.L1Loss(reduction='mean')(xy, y) \
+        #      + DiceLoss()(yx, x) +  nn.L1Loss(reduction='mean')(yx, x) \
+        #      + DiceLoss()(aba, a) + nn.L1Loss(reduction='mean')(aba, a) \
+        #      + DiceLoss()(bab, b) + nn.L1Loss(reduction='mean')(bab, b) 
         # DiceLoss()(xy, y) + 
         # DiceLoss()(yx, x) + 
         # DiceLoss()(aba, a) +
@@ -493,8 +576,24 @@ class Model(pl.LightningModule):
 
     def __dataloader(self):
         # train_tfm = None
-        valid_tfm = None
+        # valid_tfm = None
         train_tfm = AB.Compose([
+            # AB.ToFloat(), 
+            # AB.Rotate(limit=30, border_mode=cv2.BORDER_CONSTANT, p=1.0),
+            # AB.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0., rotate_limit=0, border_mode=cv2.BORDER_CONSTANT, p=0.9),
+            # AB.Resize(height=512, width=512, p=1.0), 
+            # AB.CropNonEmptyMaskIfExists(height=320, width=320, p=0.8), 
+            # AB.RandomScale(scale_limit=(0.8, 1.2), p=0.8),
+            # AB.Equalize(p=0.8),
+            # AB.CLAHE(p=0.8),
+            AB.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.9),
+            AB.RandomGamma(gamma_limit=(80, 120), p=0.9),
+            AB.GaussianBlur(p=0.05),
+            AB.GaussNoise(p=0.05),
+            AB.Resize(width=self.hparams.dimy, height=self.hparams.dimx, p=1.0),
+            # AB.ToTensor(),
+        ])
+        valid_tfm = AB.Compose([
             # AB.ToFloat(), 
             # AB.Rotate(limit=30, border_mode=cv2.BORDER_CONSTANT, p=1.0),
             # AB.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0., rotate_limit=0, border_mode=cv2.BORDER_CONSTANT, p=0.9),
@@ -587,8 +686,8 @@ def main(hparams):
     )
     stop_callback = EarlyStopping(
         monitor='val_loss',
-        mode='auto',
-        patience=50,
+        mode='min',
+        patience=500,
         verbose=True,
     )
     trainer = Trainer(
@@ -621,12 +720,12 @@ if __name__ == '__main__':
     parser.add_argument('--use_amp', default=True, action='store_true', help='if true uses 16 bit precision')
     parser.add_argument("--batch_size", type=int, default=2, help="size of the batches")
     parser.add_argument("--num_workers", type=int, default=8, help="size of the workers")
-    parser.add_argument("--lr", type=float, default=0.0005248074602497723, help="learning rate")
+    parser.add_argument("--lr", type=float, default=0.0005, help="learning rate")
     parser.add_argument("--nb_layer", type=int, default=5, help="number of layers on u-net")
     parser.add_argument("--features", type=int, default=32, help="number of features in single layer")
     parser.add_argument("--bilinear", action='store_true', default=False,
                         help="whether to use bilinear interpolation or transposed")
-    parser.add_argument("--grad_batches", type=int, default=1, help="number of batches to accumulate")
+    parser.add_argument("--grad_batches", type=int, default=10, help="number of batches to accumulate")
     parser.add_argument("--epochs", type=int, default=500, help="number of epochs to train")
     parser.add_argument("--log_wandb", action='store_true', help="log training on Weights & Biases")
     
