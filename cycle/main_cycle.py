@@ -590,7 +590,13 @@ class Model(pl.LightningModule):
         return {'avg_val_loss': avg_loss, 'log': tensorboard_logs}
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=self.learning_rate)
+        # return torch.optim.Adam(self.parameters(), lr=self.learning_rate)
+        # optimizer = torch.optim.Adam([p for p in self.parameters() if p.requires_grad], lr=self.hparams.lr, eps=1e-08)
+        # scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=2e-4, total_steps=1000)
+        # return [optimizer], [scheduler]
+        opt = torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
+        sch = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=10)
+        return [opt], [sch]
 
     def __dataloader(self):
         # train_tfm = None
@@ -740,7 +746,7 @@ if __name__ == '__main__':
     parser.add_argument('--use_amp', default=True, action='store_true', help='if true uses 16 bit precision')
     parser.add_argument("--batch_size", type=int, default=2, help="size of the batches")
     parser.add_argument("--num_workers", type=int, default=8, help="size of the workers")
-    parser.add_argument("--lr", type=float, default=0.0005, help="learning rate")
+    parser.add_argument("--lr", type=float, default=0.001, help="learning rate")
     parser.add_argument("--nb_layer", type=int, default=5, help="number of layers on u-net")
     parser.add_argument("--features", type=int, default=32, help="number of features in single layer")
     parser.add_argument("--bilinear", action='store_true', default=False,
