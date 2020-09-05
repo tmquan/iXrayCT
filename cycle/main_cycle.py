@@ -321,7 +321,7 @@ class DoubleConv2d(nn.Module):
             nn.Conv2d(source_channels, output_channels, kernel_size=4, stride=2, padding=1, bias=False),
             nn.BatchNorm2d(output_channels),
             nn.LeakyReLU(inplace=True),
-            # nn.Dropout(),
+            nn.Dropout(),
         )
         self.net = nn.Sequential(
             nn.Conv2d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
@@ -344,13 +344,13 @@ class DoubleDeconv3d(nn.Module):
         self.pre = nn.Sequential(
             nn.Dropout(),
             # nn.ConvTranspose3d(source_channels, output_channels, kernel_size=2, stride=2, padding=0, bias=False),
-            nn.Conv3d(source_channels, output_channels*8, kernel_size=3, stride=1, padding=1, bias=False),
-            PixelShuffle(2),
-            # nn.Conv3d(source_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
-            # nn.Upsample(scale_factor=2, mode='trilinear'),
+            # nn.Conv3d(source_channels, output_channels*8, kernel_size=3, stride=1, padding=1, bias=False),
+            # PixelShuffle(2),
+            nn.Conv3d(source_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.Upsample(scale_factor=2, mode='trilinear'),
             nn.BatchNorm3d(output_channels),
             nn.LeakyReLU(inplace=True),
-            # nn.Dropout(),
+            nn.Dropout(),
         )
         self.net = nn.Sequential(
             # nn.ConvTranspose3d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
@@ -376,7 +376,7 @@ class DoubleConv3d(nn.Module):
             nn.Conv3d(source_channels, output_channels, kernel_size=4, stride=2, padding=1, bias=False),
             nn.BatchNorm3d(output_channels),
             nn.LeakyReLU(inplace=True),
-            # nn.Dropout(),
+            nn.Dropout(),
         )
         self.net = nn.Sequential(
             nn.Conv3d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
@@ -399,13 +399,13 @@ class DoubleDeconv2d(nn.Module):
         self.pre = nn.Sequential(
             nn.Dropout(),
             # nn.ConvTranspose2d(source_channels, output_channels, kernel_size=2, stride=2, padding=0, bias=False),
-            nn.Conv2d(source_channels, output_channels*4, kernel_size=3, stride=1, padding=1, bias=False),
-            PixelShuffle(2),
-            # nn.Conv2d(source_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
-            # nn.Upsample(scale_factor=2, mode='bilinear'),
+            # nn.Conv2d(source_channels, output_channels*4, kernel_size=3, stride=1, padding=1, bias=False),
+            # PixelShuffle(2),
+            nn.Conv2d(source_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.Upsample(scale_factor=2, mode='bilinear'),
             nn.BatchNorm2d(output_channels),
             nn.LeakyReLU(inplace=True),
-            # nn.Dropout(),
+            nn.Dropout(),
         )
         self.net = nn.Sequential(
             # nn.ConvTranspose2d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
