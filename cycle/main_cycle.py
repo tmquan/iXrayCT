@@ -158,10 +158,10 @@ class VGGPerceptualLoss(torch.nn.Module):
     def __init__(self, resize=True):
         super(VGGPerceptualLoss, self).__init__()
         blocks = []
-        blocks.append(torchvision.models.vgg16(pretrained=True).features[:4].eval())
-        blocks.append(torchvision.models.vgg16(pretrained=True).features[4:9].eval())
-        blocks.append(torchvision.models.vgg16(pretrained=True).features[9:16].eval())
-        blocks.append(torchvision.models.vgg16(pretrained=True).features[16:23].eval())
+        blocks.append(torchvision.models.vgg16(pretrained=True).features[:4])
+        blocks.append(torchvision.models.vgg16(pretrained=True).features[4:9])
+        blocks.append(torchvision.models.vgg16(pretrained=True).features[9:16])
+        blocks.append(torchvision.models.vgg16(pretrained=True).features[16:23])
         for bl in blocks:
             for p in bl:
                 p.requires_grad = False
@@ -176,9 +176,9 @@ class VGGPerceptualLoss(torch.nn.Module):
         #     input = input.repeat(1, 3, 1, 1)
         #     target = target.repeat(1, 3, 1, 1)
 
-        input = input.view(-1, 1, input.shape[2], input.shape[3]).float()
+        input = input.view(-1, 1, input.shape[2], input.shape[3]) #.float()
         input = input.repeat(1, 3, 1, 1)
-        target = target.view(-1, 1, target.shape[2], target.shape[3]).float()
+        target = target.view(-1, 1, target.shape[2], target.shape[3]) #.float()
         target = target.repeat(1, 3, 1, 1)
         input = (input-self.mean) / self.std
         target = (target-self.mean) / self.std
@@ -357,17 +357,17 @@ class DoubleConv2d(nn.Module):
     ):
         super().__init__()
         self.pre = nn.Sequential(
-            nn.Dropout(),
+            # nn.Dropout(),
             nn.Conv2d(source_channels, output_channels, kernel_size=4, stride=2, padding=1, bias=False),
             nn.BatchNorm2d(output_channels),
             nn.LeakyReLU(inplace=True),
-            nn.Dropout(),
+            # nn.Dropout(),
         )
         self.net = nn.Sequential(
             nn.Conv2d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
             nn.BatchNorm2d(output_channels),
             nn.LeakyReLU(inplace=True),
-            nn.Dropout(),
+            # nn.Dropout(),
         )
 
     def forward(self, x):
@@ -382,7 +382,7 @@ class DoubleDeconv3d(nn.Module):
     ):
         super().__init__()
         self.pre = nn.Sequential(
-            nn.Dropout(),
+            # nn.Dropout(),
             # nn.ConvTranspose3d(source_channels, output_channels, kernel_size=2, stride=2, padding=0, bias=False),
             # nn.Conv3d(source_channels, output_channels*8, kernel_size=3, stride=1, padding=1, bias=False),
             # PixelShuffle(2),
@@ -390,14 +390,14 @@ class DoubleDeconv3d(nn.Module):
             nn.Upsample(scale_factor=2, mode='trilinear', align_corners=True),
             nn.BatchNorm3d(output_channels),
             nn.LeakyReLU(inplace=True),
-            nn.Dropout(),
+            # nn.Dropout(),
         )
         self.net = nn.Sequential(
             # nn.ConvTranspose3d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
             nn.Conv3d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
             nn.BatchNorm3d(output_channels),
             nn.LeakyReLU(inplace=True),
-            nn.Dropout(),
+            # nn.Dropout(),
         )
         
     def forward(self, x):
@@ -412,17 +412,17 @@ class DoubleConv3d(nn.Module):
     ):
         super().__init__()
         self.pre = nn.Sequential(
-            nn.Dropout(),
+            # nn.Dropout(),
             nn.Conv3d(source_channels, output_channels, kernel_size=4, stride=2, padding=1, bias=False),
             nn.BatchNorm3d(output_channels),
             nn.LeakyReLU(inplace=True),
-            nn.Dropout(),
+            # nn.Dropout(),
         )
         self.net = nn.Sequential(
             nn.Conv3d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
             nn.BatchNorm3d(output_channels),
             nn.LeakyReLU(inplace=True),
-            nn.Dropout(),
+            # nn.Dropout(),
         )
         
     def forward(self, x):
@@ -437,7 +437,7 @@ class DoubleDeconv2d(nn.Module):
     ):
         super().__init__()
         self.pre = nn.Sequential(
-            nn.Dropout(),
+            # nn.Dropout(),
             # nn.ConvTranspose2d(source_channels, output_channels, kernel_size=2, stride=2, padding=0, bias=False),
             # nn.Conv2d(source_channels, output_channels*4, kernel_size=3, stride=1, padding=1, bias=False),
             # PixelShuffle(2),
@@ -445,14 +445,14 @@ class DoubleDeconv2d(nn.Module):
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
             nn.BatchNorm2d(output_channels),
             nn.LeakyReLU(inplace=True),
-            nn.Dropout(),
+            # nn.Dropout(),
         )
         self.net = nn.Sequential(
             # nn.ConvTranspose2d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
             nn.Conv2d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
             nn.BatchNorm2d(output_channels),
             nn.LeakyReLU(inplace=True),
-            nn.Dropout(),
+            # nn.Dropout(),
         )
         
     def forward(self, x):
@@ -554,7 +554,7 @@ class Model(pl.LightningModule):
             source_channels=1, 
             output_channels=1, num_filters=self.hparams.features
         )
-        self.vggperceptualoss = VGGPerceptualLoss().eval()
+        self.vggperceptualoss = VGGPerceptualLoss() #.eval()
         self.l1loss = nn.L1Loss()
     def forward(self, x, y, a, b):
         # return self.rnet(x)
@@ -804,7 +804,7 @@ if __name__ == '__main__':
     parser.add_argument("--num_workers", type=int, default=8, help="size of the workers")
     parser.add_argument("--lr", type=float, default=0.0005, help="learning rate")
     parser.add_argument("--nb_layer", type=int, default=5, help="number of layers on u-net")
-    parser.add_argument("--features", type=int, default=24, help="number of features in single layer")
+    parser.add_argument("--features", type=int, default=32, help="number of features in single layer")
     parser.add_argument("--bilinear", action='store_true', default=False,
                         help="whether to use bilinear interpolation or transposed")
     parser.add_argument("--grad_batches", type=int, default=1, help="number of batches to accumulate")
