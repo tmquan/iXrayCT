@@ -154,6 +154,46 @@ class DiceLoss(nn.Module):
     def forward(self, input, target):
         return dice_loss(input, target, self.eps)
 
+class VGGPerceptualLoss(torch.nn.Module):
+    def __init__(self, resize=True):
+        super(VGGPerceptualLoss, self).__init__()
+        blocks = []
+        blocks.append(torchvision.models.vgg16(pretrained=True).features[:4].eval())
+        blocks.append(torchvision.models.vgg16(pretrained=True).features[4:9].eval())
+        blocks.append(torchvision.models.vgg16(pretrained=True).features[9:16].eval())
+        blocks.append(torchvision.models.vgg16(pretrained=True).features[16:23].eval())
+        for bl in blocks:
+            for p in bl:
+                p.requires_grad = False
+        self.blocks = torch.nn.ModuleList(blocks)
+        self.transform = torch.nn.functional.interpolate
+        self.mean = torch.nn.Parameter(torch.tensor([0.485, 0.456, 0.406]).view(1,3,1,1))
+        self.std = torch.nn.Parameter(torch.tensor([0.229, 0.224, 0.225]).view(1,3,1,1))
+        self.resize = resize
+
+    def forward(self, input, target):
+        # if input.shape[1] != 3:
+        #     input = input.repeat(1, 3, 1, 1)
+        #     target = target.repeat(1, 3, 1, 1)
+
+        input = input.view(-1, 1, input.shape[2], input.shape[3]).float()
+        input = input.repeat(1, 3, 1, 1)
+        target = target.view(-1, 1, target.shape[2], target.shape[3]).float()
+        target = target.repeat(1, 3, 1, 1)
+        input = (input-self.mean) / self.std
+        target = (target-self.mean) / self.std
+        if self.resize:
+            input = self.transform(input, mode='bilinear', size=(224, 224), align_corners=False)
+            target = self.transform(target, mode='bilinear', size=(224, 224), align_corners=False)
+        loss = 0.0
+        x = input
+        y = target
+        for block in self.blocks:
+            x = block(x)
+            y = block(y)
+            loss += torch.nn.functional.l1_loss(x, y)
+        return loss
+
 def worker_init_fn(worker_id):                                                          
     # np.random.seed(np.random.get_state()[1][0] + worker_id)
     torch.initial_seed()
@@ -347,7 +387,7 @@ class DoubleDeconv3d(nn.Module):
             # nn.Conv3d(source_channels, output_channels*8, kernel_size=3, stride=1, padding=1, bias=False),
             # PixelShuffle(2),
             nn.Conv3d(source_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
-            nn.Upsample(scale_factor=2, mode='trilinear'),
+            nn.Upsample(scale_factor=2, mode='trilinear', align_corners=True),
             nn.BatchNorm3d(output_channels),
             nn.LeakyReLU(inplace=True),
             nn.Dropout(),
@@ -402,7 +442,7 @@ class DoubleDeconv2d(nn.Module):
             # nn.Conv2d(source_channels, output_channels*4, kernel_size=3, stride=1, padding=1, bias=False),
             # PixelShuffle(2),
             nn.Conv2d(source_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
-            nn.Upsample(scale_factor=2, mode='bilinear'),
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
             nn.BatchNorm2d(output_channels),
             nn.LeakyReLU(inplace=True),
             nn.Dropout(),
@@ -514,7 +554,8 @@ class Model(pl.LightningModule):
             source_channels=1, 
             output_channels=1, num_filters=self.hparams.features
         )
-
+        self.vggperceptualoss = VGGPerceptualLoss().eval()
+        self.l1loss = nn.L1Loss()
     def forward(self, x, y, a, b):
         # return self.rnet(x)
         xy = self.inet(x)         # ct from xr
@@ -534,18 +575,20 @@ class Model(pl.LightningModule):
         a = a / 255.0
         b = b / 255.0
         xy, yx, ab, aba, ba, bab = self.forward(x, y, a, b)
-        loss = nn.L1Loss(reduction='mean')(xy, y) \
-             + nn.L1Loss(reduction='mean')(yx, x) \
-             + nn.L1Loss(reduction='mean')(aba, a) \
-             + nn.L1Loss(reduction='mean')(bab, b) 
-        # loss = DiceLoss()(xy, y) +  nn.L1Loss(reduction='mean')(xy, y) \
-        #      + DiceLoss()(yx, x) +  nn.L1Loss(reduction='mean')(yx, x) \
-        #      + DiceLoss()(aba, a) + nn.L1Loss(reduction='mean')(aba, a) \
-        #      + DiceLoss()(bab, b) + nn.L1Loss(reduction='mean')(bab, b) 
-        # DiceLoss()(xy, y) + 
-        # DiceLoss()(yx, x) + 
-        # DiceLoss()(aba, a) +
-        # DiceLoss()(bab, b) +
+        loss_l1_direct_xy = self.l1loss(xy, y) 
+        loss_l1_direct_yx = self.l1loss(yx, x) 
+        loss_l1_unpair_ab = self.l1loss(aba, a) 
+        loss_l1_unpair_ba = self.l1loss(bab, b) 
+        loss_perceptual_xy = self.vggperceptualoss(xy, y) 
+        loss_perceptual_yx = self.vggperceptualoss(yx, x) 
+        loss_perceptual_ab = self.vggperceptualoss(ab, b) 
+        loss_perceptual_ba = self.vggperceptualoss(ba, a) 
+        loss_l1 = loss_l1_direct_xy + loss_l1_direct_yx \
+                + loss_l1_unpair_ab + loss_l1_unpair_ba 
+        loss_perceptual = loss_perceptual_xy + loss_perceptual_yx \
+                        + loss_perceptual_ab + loss_perceptual_ba 
+        loss = loss_l1 + loss_perceptual
+     
         mid = int(y.shape[1]/2)
         vis_images = torch.cat([torch.cat([x, y[:,mid:mid+1,:,:], xy[:,mid:mid+1,:,:], yx], dim=-1), 
                                 torch.cat([a, b[:,mid:mid+1,:,:], ab[:,mid:mid+1,:,:], aba], dim=-1), 
@@ -553,7 +596,18 @@ class Model(pl.LightningModule):
                                 ], dim=-2) 
         grid = torchvision.utils.make_grid(vis_images, nrow=2, padding=0)
         self.logger.experiment.add_image('train_vis', grid, self.current_epoch)
-        tensorboard_logs = {'train_loss': loss, 'lr': self.learning_rate}
+        tensorboard_logs = {'train_loss': loss, 
+                            'loss_l1_direct_xy': loss_l1_direct_xy,
+                            'loss_l1_direct_yx': loss_l1_direct_yx,
+                            'loss_l1_unpair_ab': loss_l1_unpair_ab,
+                            'loss_l1_unpair_ba': loss_l1_unpair_ba,
+                            'loss_l1': loss_l1,
+                            'loss_perceptual_xy': loss_perceptual_xy,
+                            'loss_perceptual_yx': loss_perceptual_yx,
+                            'loss_perceptual_ab': loss_perceptual_ab,
+                            'loss_perceptual_ba': loss_perceptual_ba,
+                            'loss_perceptual': loss_perceptual,
+                            'lr': self.learning_rate}
         return {'loss': loss, 'log': tensorboard_logs}
 
     def validation_step(self, batch, batch_nb):
@@ -563,18 +617,20 @@ class Model(pl.LightningModule):
         a = a / 255.0
         b = b / 255.0
         xy, yx, ab, aba, ba, bab = self.forward(x, y, a, b)
-        loss = nn.L1Loss(reduction='mean')(xy, y) \
-             + nn.L1Loss(reduction='mean')(yx, x) \
-             + nn.L1Loss(reduction='mean')(aba, a) \
-             + nn.L1Loss(reduction='mean')(bab, b) 
-        # loss = DiceLoss()(xy, y) +  nn.L1Loss(reduction='mean')(xy, y) \
-        #      + DiceLoss()(yx, x) +  nn.L1Loss(reduction='mean')(yx, x) \
-        #      + DiceLoss()(aba, a) + nn.L1Loss(reduction='mean')(aba, a) \
-        #      + DiceLoss()(bab, b) + nn.L1Loss(reduction='mean')(bab, b) 
-        # DiceLoss()(xy, y) + 
-        # DiceLoss()(yx, x) + 
-        # DiceLoss()(aba, a) +
-        # DiceLoss()(bab, b) +
+        loss_l1_direct_xy = self.l1loss(xy, y) 
+        loss_l1_direct_yx = self.l1loss(yx, x) 
+        loss_l1_unpair_ab = self.l1loss(aba, a) 
+        loss_l1_unpair_ba = self.l1loss(bab, b) 
+        loss_perceptual_xy = self.vggperceptualoss(xy, y) 
+        loss_perceptual_yx = self.vggperceptualoss(yx, x) 
+        loss_perceptual_ab = self.vggperceptualoss(ab, b) 
+        loss_perceptual_ba = self.vggperceptualoss(ba, a) 
+        loss_l1 = loss_l1_direct_xy + loss_l1_direct_yx \
+                + loss_l1_unpair_ab + loss_l1_unpair_ba 
+        loss_perceptual = loss_perceptual_xy + loss_perceptual_yx \
+                        + loss_perceptual_ab + loss_perceptual_ba 
+        loss = loss_l1 + loss_perceptual
+       
         mid = int(y.shape[1]/2)
         vis_images = torch.cat([torch.cat([x, y[:,mid:mid+1,:,:], xy[:,mid:mid+1,:,:], yx], dim=-1), 
                                 torch.cat([a, b[:,mid:mid+1,:,:], ab[:,mid:mid+1,:,:], aba], dim=-1), 
@@ -744,11 +800,11 @@ if __name__ == '__main__':
     parser.add_argument('--distributed-backend', type=str, default='ddp', choices=('dp', 'ddp', 'ddp2'),
                         help='supports three options dp, ddp, ddp2')
     parser.add_argument('--use_amp', default=True, action='store_true', help='if true uses 16 bit precision')
-    parser.add_argument("--batch_size", type=int, default=2, help="size of the batches")
+    parser.add_argument("--batch_size", type=int, default=1, help="size of the batches")
     parser.add_argument("--num_workers", type=int, default=8, help="size of the workers")
-    parser.add_argument("--lr", type=float, default=0.001, help="learning rate")
+    parser.add_argument("--lr", type=float, default=0.0005, help="learning rate")
     parser.add_argument("--nb_layer", type=int, default=5, help="number of layers on u-net")
-    parser.add_argument("--features", type=int, default=32, help="number of features in single layer")
+    parser.add_argument("--features", type=int, default=24, help="number of features in single layer")
     parser.add_argument("--bilinear", action='store_true', default=False,
                         help="whether to use bilinear interpolation or transposed")
     parser.add_argument("--grad_batches", type=int, default=1, help="number of batches to accumulate")
