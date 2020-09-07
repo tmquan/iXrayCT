@@ -241,17 +241,19 @@ class DoubleConv2d(nn.Module):
     ):
         super().__init__()
         self.pre = nn.Sequential(
-            nn.Dropout(),
+            # nn.Dropout(),
             nn.Conv2d(source_channels, output_channels, kernel_size=4, stride=2, padding=1, bias=False),
-            nn.BatchNorm2d(output_channels),
+            # nn.BatchNorm2d(output_channels),
+            nn.GroupNorm(8, output_channels),
             nn.LeakyReLU(inplace=True),
-            nn.Dropout(),
+            # nn.Dropout(),
         )
         self.net = nn.Sequential(
             nn.Conv2d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
-            nn.BatchNorm2d(output_channels),
+            # nn.BatchNorm2d(output_channels),
+            nn.GroupNorm(8, output_channels),
             nn.LeakyReLU(inplace=True),
-            nn.Dropout(),
+            # nn.Dropout(),
         )
 
     def forward(self, x):
@@ -266,22 +268,24 @@ class DoubleDeconv3d(nn.Module):
     ):
         super().__init__()
         self.pre = nn.Sequential(
-            nn.Dropout(),
+            # nn.Dropout(),
             # nn.ConvTranspose3d(source_channels, output_channels, kernel_size=2, stride=2, padding=0, bias=False),
             # nn.Conv3d(source_channels, output_channels*8, kernel_size=3, stride=1, padding=1, bias=False),
             # PixelShuffle(2),
             nn.Conv3d(source_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
             nn.Upsample(scale_factor=2, mode='trilinear', align_corners=True),
-            nn.BatchNorm3d(output_channels),
+            # nn.BatchNorm3d(output_channels),
+            nn.GroupNorm(8, output_channels),
             nn.LeakyReLU(inplace=True),
-            nn.Dropout(),
+            # nn.Dropout(),
         )
         self.net = nn.Sequential(
             # nn.ConvTranspose3d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
             nn.Conv3d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
-            nn.BatchNorm3d(output_channels),
+            # nn.BatchNorm3d(output_channels),
+            nn.GroupNorm(8, output_channels),
             nn.LeakyReLU(inplace=True),
-            nn.Dropout(),
+            # nn.Dropout(),
         )
         
     def forward(self, x):
@@ -296,17 +300,19 @@ class DoubleConv3d(nn.Module):
     ):
         super().__init__()
         self.pre = nn.Sequential(
-            nn.Dropout(),
+            # nn.Dropout(),
             nn.Conv3d(source_channels, output_channels, kernel_size=4, stride=2, padding=1, bias=False),
-            nn.BatchNorm3d(output_channels),
+            # nn.BatchNorm3d(output_channels),
+            nn.GroupNorm(8, output_channels),
             nn.LeakyReLU(inplace=True),
-            nn.Dropout(),
+            # nn.Dropout(),
         )
         self.net = nn.Sequential(
             nn.Conv3d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
-            nn.BatchNorm3d(output_channels),
+            # nn.BatchNorm3d(output_channels),
+            nn.GroupNorm(8, output_channels),
             nn.LeakyReLU(inplace=True),
-            nn.Dropout(),
+            # nn.Dropout(),
         )
         
     def forward(self, x):
@@ -321,22 +327,24 @@ class DoubleDeconv2d(nn.Module):
     ):
         super().__init__()
         self.pre = nn.Sequential(
-            nn.Dropout(),
+            # nn.Dropout(),
             # nn.ConvTranspose2d(source_channels, output_channels, kernel_size=2, stride=2, padding=0, bias=False),
             # nn.Conv2d(source_channels, output_channels*4, kernel_size=3, stride=1, padding=1, bias=False),
             # PixelShuffle(2),
             nn.Conv2d(source_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
-            nn.BatchNorm2d(output_channels),
+            # nn.BatchNorm2d(output_channels),
+            nn.GroupNorm(8, output_channels),
             nn.LeakyReLU(inplace=True),
-            nn.Dropout(),
+            # nn.Dropout(),
         )
         self.net = nn.Sequential(
             # nn.ConvTranspose2d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
             nn.Conv2d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
-            nn.BatchNorm2d(output_channels),
+            # nn.BatchNorm2d(output_channels),
+            nn.GroupNorm(8, output_channels),
             nn.LeakyReLU(inplace=True),
-            nn.Dropout(),
+            # nn.Dropout(),
         )
         
     def forward(self, x):
@@ -358,15 +366,17 @@ class INet(nn.Module):
 
             # Transformation
             nn.Conv2d(num_filters*64, num_filters*64, kernel_size=1, stride=1, padding=0, bias=False),
-            nn.BatchNorm2d(num_filters*64),
+            # nn.BatchNorm2d(num_filters*64),
+            nn.GroupNorm(8, num_filters*64),
             nn.LeakyReLU(inplace=True),
-            nn.Dropout(),
+            # nn.Dropout(),
         )
         self.dec = nn.Sequential(
             Reshape(num_filters*32, 2, 8, 8),
             nn.Conv3d(num_filters*32, num_filters*32, kernel_size=1, stride=1, padding=0, bias=False),
             # nn.ConvTranspose3d(num_filters*32, num_filters*32, kernel_size=1, stride=1, padding=0, bias=False),
-            nn.BatchNorm3d(num_filters*32),
+            # nn.BatchNorm3d(num_filters*32),
+            nn.GroupNorm(8, num_filters*32),
             nn.LeakyReLU(inplace=True),
 
             # 3D
@@ -403,15 +413,17 @@ class PNet(nn.Module):
             
             # transformation
             nn.Conv3d(num_filters*32, num_filters*32, kernel_size=1, stride=1, padding=0, bias=False),
-            nn.BatchNorm3d(num_filters*32),
+            # nn.BatchNorm3d(num_filters*32),
+            nn.GroupNorm(8, num_filters*32),
             nn.LeakyReLU(inplace=True),
-            nn.Dropout(),
+            # nn.Dropout(),
             Reshape(num_filters*64, 8, 8),
         )
         self.dec = nn.Sequential(
             nn.Conv2d(num_filters*64, num_filters*64, kernel_size=1, stride=1, padding=0, bias=False),
             # nn.ConvTranspose2d(num_filters*64, num_filters*64, kernel_size=1, stride=1, padding=0, bias=False),
-            nn.BatchNorm2d(num_filters*64),
+            # nn.BatchNorm2d(num_filters*64),
+            nn.GroupNorm(8, num_filters*64),
             nn.LeakyReLU(inplace=True),
             
             # 2D
@@ -422,7 +434,8 @@ class PNet(nn.Module):
             DoubleDeconv2d(num_filters*4, num_filters*2), #256
             # nn.ConvTranspose2d(num_filters*2, num_filters*1, kernel_size=1, stride=1, padding=0, bias=False),
             nn.Conv2d(num_filters*2, num_filters*1, kernel_size=3, stride=1, padding=1, bias=False),
-            nn.BatchNorm2d(num_filters*1),
+            # nn.BatchNorm2d(num_filters*1),
+            nn.GroupNorm(8, num_filters*1),
             nn.LeakyReLU(inplace=True),
             nn.Conv2d(num_filters*1, output_channels, kernel_size=1, stride=1, padding=0, bias=False),
             nn.Tanh(),
@@ -691,7 +704,7 @@ if __name__ == '__main__':
     parser.add_argument('--distributed-backend', type=str, default='ddp', choices=('dp', 'ddp', 'ddp2'),
                         help='supports three options dp, ddp, ddp2')
     parser.add_argument('--use_amp', default=True, action='store_true', help='if true uses 16 bit precision')
-    parser.add_argument("--batch_size", type=int, default=2, help="size of the batches")
+    parser.add_argument("--batch_size", type=int, default=1, help="size of the batches")
     parser.add_argument("--num_workers", type=int, default=8, help="size of the workers")
     parser.add_argument("--lr", type=float, default=0.0005, help="learning rate")
     parser.add_argument("--nb_layer", type=int, default=5, help="number of layers on u-net")
@@ -716,3 +729,4 @@ if __name__ == '__main__':
         torch.backends.cudnn.benchmark = True
 
     main(hparams)
+
