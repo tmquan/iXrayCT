@@ -176,51 +176,22 @@ class Unsqueeze(nn.Module):
 
     def forward(self, x):
         return x.unsqueeze(self.dim)
-class PositionalEncoding1D(nn.Module):
-    def __init__(self, channels):
-        """
-        :param channels: The last dimension of the tensor you want to apply pos emb to.
-        """
-        super(PositionalEncoding1D, self).__init__()
-        self.channels = channels
-        inv_freq = 1. / (10000 ** (torch.arange(0, channels, 2).float() / channels))
-        self.register_buffer('inv_freq', inv_freq)
 
-    def forward(self, tensor):
-        """
-        :param tensor: A 3d tensor of size (batch_size, x, ch)
-        :return: Positional Encoding Matrix of size (batch_size, x, ch)
-        """
-        if len(tensor.shape) != 3:
-            raise RuntimeError("The input tensor has to be 3d!")
-        _, x, orig_ch = tensor.shape
-        pos_x = torch.arange(x, device=tensor.device).type(self.inv_freq.type())
-        sin_inp_x = torch.einsum("i,j->ij", pos_x, self.inv_freq)
-        emb_x = torch.cat((sin_inp_x.sin(), sin_inp_x.cos()), dim=-1)
-        emb = torch.zeros((x,self.channels),device=tensor.device).type(tensor.type())
-        emb[:,:self.channels] = emb_x
-
-        return emb[None,:,:orig_ch]
 
 class PositionalEncoding2D(nn.Module):
     def __init__(self, channels):
-        """
-        :param channels: The last dimension of the tensor you want to apply pos emb to.
-        """
-        super(PositionalEncoding2D, self).__init__()
+        super().__init__()
         channels = int(np.ceil(channels/2))
+        if channels % 2 or channels == 0:
+            channels += 1
         self.channels = channels
         inv_freq = 1. / (10000 ** (torch.arange(0, channels, 2).float() / channels))
         self.register_buffer('inv_freq', inv_freq)
 
     def forward(self, tensor):
-        """
-        :param tensor: A 4d tensor of size (batch_size, x, y, ch)
-        :return: Positional Encoding Matrix of size (batch_size, x, y, ch)
-        """
         if len(tensor.shape) != 4:
             raise RuntimeError("The input tensor has to be 4d!")
-        _, x, y, orig_ch = tensor.shape
+        b, orig_ch, y, x = tensor.shape
         pos_x = torch.arange(x, device=tensor.device).type(self.inv_freq.type())
         pos_y = torch.arange(y, device=tensor.device).type(self.inv_freq.type())
         sin_inp_x = torch.einsum("i,j->ij", pos_x, self.inv_freq)
@@ -231,44 +202,78 @@ class PositionalEncoding2D(nn.Module):
         emb[:,:,:self.channels] = emb_x
         emb[:,:,self.channels:2*self.channels] = emb_y
 
-        return emb[None,:,:,:orig_ch]
+        return emb[:,:,:orig_ch].unsqueeze(0).repeat(b, 1, 1, 1).permute(0, 3, 2, 1)
 
 class PositionalEncoding3D(nn.Module):
     def __init__(self, channels):
-        """
-        :param channels: The last dimension of the tensor you want to apply pos emb to.
-        """
-        super(PositionalEncoding3D, self).__init__()
+        super().__init__()
         channels = int(np.ceil(channels/3))
-        if channels % 2:
+        if channels % 2 or channels == 0:
             channels += 1
         self.channels = channels
         inv_freq = 1. / (10000 ** (torch.arange(0, channels, 2).float() / channels))
         self.register_buffer('inv_freq', inv_freq)
 
     def forward(self, tensor):
-        """
-        :param tensor: A 5d tensor of size (batch_size, x, y, z, ch)
-        :return: Positional Encoding Matrix of size (batch_size, x, y, z, ch)
-        """
         if len(tensor.shape) != 5:
             raise RuntimeError("The input tensor has to be 5d!")
-        _, x, y, z, orig_ch = tensor.shape
+        b, orig_ch, z, y, x  = tensor.shape
         pos_x = torch.arange(x, device=tensor.device).type(self.inv_freq.type())
         pos_y = torch.arange(y, device=tensor.device).type(self.inv_freq.type())
         pos_z = torch.arange(z, device=tensor.device).type(self.inv_freq.type())
         sin_inp_x = torch.einsum("i,j->ij", pos_x, self.inv_freq)
         sin_inp_y = torch.einsum("i,j->ij", pos_y, self.inv_freq)
         sin_inp_z = torch.einsum("i,j->ij", pos_z, self.inv_freq)
-        emb_x = torch.cat((sin_inp_x.sin(), sin_inp_x.cos()), dim=-1).unsqueeze(1).unsqueeze(1)
-        emb_y = torch.cat((sin_inp_y.sin(), sin_inp_y.cos()), dim=-1).unsqueeze(1)
-        emb_z = torch.cat((sin_inp_z.sin(), sin_inp_z.cos()), dim=-1)
-        emb = torch.zeros((x,y,z,self.channels*3),device=tensor.device).type(tensor.type())
-        emb[:,:,:,:self.channels] = emb_x
-        emb[:,:,:,self.channels:2*self.channels] = emb_y
-        emb[:,:,:,2*self.channels:] = emb_z
+        emb_x = torch.cat((sin_inp_x.sin(), sin_inp_x.cos()), dim=1)
+        emb_y = torch.cat((sin_inp_y.sin(), sin_inp_y.cos()), dim=1).unsqueeze(1)
+        emb_z = torch.cat((sin_inp_z.sin(), sin_inp_z.cos()), dim=1).unsqueeze(1).unsqueeze(1)
+        emb = torch.zeros((1, z, y, x, self.channels*3),device=tensor.device).type(tensor.type())
+        emb[:,:,:,:,:self.channels] = emb_x
+        emb[:,:,:,:,self.channels:2*self.channels] = emb_y
+        emb[:,:,:,:,2*self.channels:] = emb_z
+        return emb[:,:,:,:,:orig_ch].permute(0, 4, 1, 2, 3).repeat(b, 1, 1, 1, 1)
 
-        return emb[None,:,:,:,:orig_ch]
+class PositionalEncodingConv2d(nn.Module):
+    def __init__(self, 
+        source_channels=32, 
+        output_channels=32,
+        kernel_size=4, stride=2, padding=1, bias=False
+    ):
+        super().__init__()
+        self.encoding = PositionalEncoding2D(source_channels)
+        self.convolve = nn.Conv2d(source_channels*2, 
+                                  output_channels, 
+                                  kernel_size=kernel_size, 
+                                  stride=stride, 
+                                  padding=padding, 
+                                  bias=bias)
+
+    def forward(self, x):
+        encode = self.encoding(x)
+        concat = torch.cat((x, encode), dim=1)
+        result = self.convolve(concat)
+        return result
+
+class PositionalEncodingConv3d(nn.Module):
+    def __init__(self, 
+        source_channels=32, 
+        output_channels=32,
+        kernel_size=4, stride=2, padding=1, bias=False
+    ):
+        super().__init__()
+        self.encoding = PositionalEncoding3D(source_channels)
+        self.convolve = nn.Conv3d(source_channels*2, 
+                                  output_channels, 
+                                  kernel_size=kernel_size, 
+                                  stride=stride, 
+                                  padding=padding, 
+                                  bias=bias)
+
+    def forward(self, x):
+        encode = self.encoding(x)
+        concat = torch.cat((x, encode), dim=1)
+        result = self.convolve(concat)
+        return result
 
 class DoubleConv2d(nn.Module):
     def __init__(self, 
@@ -277,19 +282,14 @@ class DoubleConv2d(nn.Module):
     ):
         super().__init__()
         self.pre = nn.Sequential(
-            # nn.Dropout(),
-            nn.Conv2d(source_channels, output_channels, kernel_size=4, stride=2, padding=1, bias=False),
-            # nn.BatchNorm2d(output_channels),
+            PositionalEncodingConv2d(source_channels, output_channels, kernel_size=4, stride=2, padding=1, bias=False),
             nn.GroupNorm(8, output_channels),
             nn.LeakyReLU(inplace=True),
-            # nn.Dropout(),
         )
         self.net = nn.Sequential(
-            nn.Conv2d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
-            # nn.BatchNorm2d(output_channels),
+            PositionalEncodingConv2d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
             nn.GroupNorm(8, output_channels),
             nn.LeakyReLU(inplace=True),
-            # nn.Dropout(),
         )
 
     def forward(self, x):
@@ -304,24 +304,15 @@ class DoubleDeconv3d(nn.Module):
     ):
         super().__init__()
         self.pre = nn.Sequential(
-            # nn.Dropout(),
-            # nn.ConvTranspose3d(source_channels, output_channels, kernel_size=2, stride=2, padding=0, bias=False),
-            # nn.Conv3d(source_channels, output_channels*8, kernel_size=3, stride=1, padding=1, bias=False),
-            # PixelShuffle(2),
-            nn.Conv3d(source_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
+            PositionalEncodingConv3d(source_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
             nn.Upsample(scale_factor=2, mode='trilinear', align_corners=True),
-            # nn.BatchNorm3d(output_channels),
             nn.GroupNorm(8, output_channels),
             nn.LeakyReLU(inplace=True),
-            # nn.Dropout(),
         )
         self.net = nn.Sequential(
-            # nn.ConvTranspose3d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
-            nn.Conv3d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
-            # nn.BatchNorm3d(output_channels),
+            PositionalEncodingConv3d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
             nn.GroupNorm(8, output_channels),
             nn.LeakyReLU(inplace=True),
-            # nn.Dropout(),
         )
         
     def forward(self, x):
@@ -336,19 +327,14 @@ class DoubleConv3d(nn.Module):
     ):
         super().__init__()
         self.pre = nn.Sequential(
-            # nn.Dropout(),
-            nn.Conv3d(source_channels, output_channels, kernel_size=4, stride=2, padding=1, bias=False),
-            # nn.BatchNorm3d(output_channels),
+            PositionalEncodingConv3d(source_channels, output_channels, kernel_size=4, stride=2, padding=1, bias=False),
             nn.GroupNorm(8, output_channels),
             nn.LeakyReLU(inplace=True),
-            # nn.Dropout(),
         )
         self.net = nn.Sequential(
-            nn.Conv3d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
-            # nn.BatchNorm3d(output_channels),
+            PositionalEncodingConv3d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
             nn.GroupNorm(8, output_channels),
             nn.LeakyReLU(inplace=True),
-            # nn.Dropout(),
         )
         
     def forward(self, x):
@@ -363,24 +349,15 @@ class DoubleDeconv2d(nn.Module):
     ):
         super().__init__()
         self.pre = nn.Sequential(
-            # nn.Dropout(),
-            # nn.ConvTranspose2d(source_channels, output_channels, kernel_size=2, stride=2, padding=0, bias=False),
-            # nn.Conv2d(source_channels, output_channels*4, kernel_size=3, stride=1, padding=1, bias=False),
-            # PixelShuffle(2),
-            nn.Conv2d(source_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
+            PositionalEncodingConv2d(source_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
-            # nn.BatchNorm2d(output_channels),
             nn.GroupNorm(8, output_channels),
             nn.LeakyReLU(inplace=True),
-            # nn.Dropout(),
         )
         self.net = nn.Sequential(
-            # nn.ConvTranspose2d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
             nn.Conv2d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
-            # nn.BatchNorm2d(output_channels),
             nn.GroupNorm(8, output_channels),
             nn.LeakyReLU(inplace=True),
-            # nn.Dropout(),
         )
         
     def forward(self, x):
@@ -409,9 +386,7 @@ class INet(nn.Module):
         )
         self.dec = nn.Sequential(
             Reshape(num_filters*32, 2, 8, 8),
-            nn.Conv3d(num_filters*32, num_filters*32, kernel_size=1, stride=1, padding=0, bias=False),
-            # nn.ConvTranspose3d(num_filters*32, num_filters*32, kernel_size=1, stride=1, padding=0, bias=False),
-            # nn.BatchNorm3d(num_filters*32),
+            PositionalEncodingConv3d(num_filters*32, num_filters*32, kernel_size=1, stride=1, padding=0, bias=False),
             nn.GroupNorm(8, num_filters*32),
             nn.LeakyReLU(inplace=True),
 
@@ -422,10 +397,10 @@ class INet(nn.Module):
             DoubleDeconv3d(num_filters*4, num_filters*2),
             DoubleDeconv3d(num_filters*2, num_filters*1),
             # nn.ConvTranspose3d(num_filters*1, output_channels, kernel_size=1, stride=1, padding=0, bias=False),
-            nn.Conv3d(num_filters*1, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
+            PositionalEncodingConv3d(num_filters*1, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
             nn.LeakyReLU(inplace=True),
             Squeeze(dim=1),
-            nn.Conv2d(64, 64, kernel_size=1, stride=1, padding=0, bias=False),
+            PositionalEncodingConv2d(64, 64, kernel_size=1, stride=1, padding=0, bias=False),
             nn.Tanh()
         )
     
@@ -448,17 +423,13 @@ class PNet(nn.Module):
             DoubleConv3d(num_filters*16, num_filters*32), #8
             
             # transformation
-            nn.Conv3d(num_filters*32, num_filters*32, kernel_size=1, stride=1, padding=0, bias=False),
-            # nn.BatchNorm3d(num_filters*32),
+            PositionalEncodingConv3d(num_filters*32, num_filters*32, kernel_size=1, stride=1, padding=0, bias=False),
             nn.GroupNorm(8, num_filters*32),
             nn.LeakyReLU(inplace=True),
-            # nn.Dropout(),
             Reshape(num_filters*64, 8, 8),
         )
         self.dec = nn.Sequential(
-            nn.Conv2d(num_filters*64, num_filters*64, kernel_size=1, stride=1, padding=0, bias=False),
-            # nn.ConvTranspose2d(num_filters*64, num_filters*64, kernel_size=1, stride=1, padding=0, bias=False),
-            # nn.BatchNorm2d(num_filters*64),
+            PositionalEncodingConv2d(num_filters*64, num_filters*64, kernel_size=1, stride=1, padding=0, bias=False),
             nn.GroupNorm(8, num_filters*64),
             nn.LeakyReLU(inplace=True),
             
@@ -469,11 +440,11 @@ class PNet(nn.Module):
             DoubleDeconv2d(num_filters*8, num_filters*4), #128
             DoubleDeconv2d(num_filters*4, num_filters*2), #256
             # nn.ConvTranspose2d(num_filters*2, num_filters*1, kernel_size=1, stride=1, padding=0, bias=False),
-            nn.Conv2d(num_filters*2, num_filters*1, kernel_size=3, stride=1, padding=1, bias=False),
+            PositionalEncodingConv2d(num_filters*2, num_filters*1, kernel_size=3, stride=1, padding=1, bias=False),
             # nn.BatchNorm2d(num_filters*1),
             nn.GroupNorm(8, num_filters*1),
             nn.LeakyReLU(inplace=True),
-            nn.Conv2d(num_filters*1, output_channels, kernel_size=1, stride=1, padding=0, bias=False),
+            PositionalEncodingConv2d(num_filters*1, output_channels, kernel_size=1, stride=1, padding=0, bias=False),
             nn.Tanh(),
         )
 
@@ -736,15 +707,15 @@ if __name__ == '__main__':
     parser.add_argument('--dimz', type=int, default=64)
     parser.add_argument('--lgdir', type=str, default='lightning_logs')
     parser.add_argument('--seed', type=int, default=42)
-    parser.add_argument("--gpus", type=int, default=-1, help="number of available GPUs")
+    parser.add_argument("--gpus", default='4,5', help="number of available GPUs")
     parser.add_argument('--distributed-backend', type=str, default='ddp', choices=('dp', 'ddp', 'ddp2'),
                         help='supports three options dp, ddp, ddp2')
     parser.add_argument('--use_amp', default=True, action='store_true', help='if true uses 16 bit precision')
-    parser.add_argument("--batch_size", type=int, default=1, help="size of the batches")
+    parser.add_argument("--batch_size", type=int, default=2, help="size of the batches")
     parser.add_argument("--num_workers", type=int, default=8, help="size of the workers")
     parser.add_argument("--lr", type=float, default=0.01, help="learning rate")
     parser.add_argument("--nb_layer", type=int, default=5, help="number of layers on u-net")
-    parser.add_argument("--features", type=int, default=32, help="number of features in single layer")
+    parser.add_argument("--features", type=int, default=16, help="number of features in single layer")
     parser.add_argument("--bilinear", action='store_true', default=False,
                         help="whether to use bilinear interpolation or transposed")
     parser.add_argument("--grad_batches", type=int, default=1, help="number of batches to accumulate")
