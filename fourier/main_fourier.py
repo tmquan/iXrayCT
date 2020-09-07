@@ -378,7 +378,7 @@ class INet(nn.Module):
             
 
             # Transformation
-            nn.Conv2d(num_filters*64, num_filters*64, kernel_size=1, stride=1, padding=0, bias=False),
+            PositionalEncodingConv2d(num_filters*64, num_filters*64, kernel_size=1, stride=1, padding=0, bias=False),
             # nn.BatchNorm2d(num_filters*64),
             nn.GroupNorm(8, num_filters*64),
             nn.LeakyReLU(inplace=True),
