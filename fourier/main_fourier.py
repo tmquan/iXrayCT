@@ -108,12 +108,51 @@ class TotalVariationLoss(nn.Module):
 
     def forward(self, img, dst):
         # return total_variation(img)
-        tv_img = self.tv(img)
-        tv_dst = self.tv(dst)
-        return nn.L1Loss()(tv_img, tv_dst)
+        # tv_img = self.tv(img)
+        # tv_dst = self.tv(dst)
+        # return nn.L1Loss()(tv_img, tv_dst)
+        return self.tv(img-dst)
 
 
+class VGGPerceptualLoss(torch.nn.Module):
+    def __init__(self, resize=True):
+        super(VGGPerceptualLoss, self).__init__()
+        blocks = []
+        blocks.append(torchvision.models.vgg16(pretrained=True).features[:4])
+        blocks.append(torchvision.models.vgg16(pretrained=True).features[4:9])
+        blocks.append(torchvision.models.vgg16(pretrained=True).features[9:16])
+        blocks.append(torchvision.models.vgg16(pretrained=True).features[16:23])
+        for bl in blocks:
+            for p in bl:
+                p.requires_grad = False
+        self.blocks = torch.nn.ModuleList(blocks)
+        self.transform = torch.nn.functional.interpolate
+        self.mean = torch.nn.Parameter(torch.tensor([0.485, 0.456, 0.406]).view(1,3,1,1))
+        self.std = torch.nn.Parameter(torch.tensor([0.229, 0.224, 0.225]).view(1,3,1,1))
+        self.resize = resize
 
+    def forward(self, input, target):
+        # if input.shape[1] != 3:
+        #     input = input.repeat(1, 3, 1, 1)
+        #     target = target.repeat(1, 3, 1, 1)
+
+        input = input.view(-1, 1, input.shape[2], input.shape[3]) #.float()
+        input = input.repeat(1, 3, 1, 1)
+        target = target.view(-1, 1, target.shape[2], target.shape[3]) #.float()
+        target = target.repeat(1, 3, 1, 1)
+        input = (input-self.mean) / self.std
+        target = (target-self.mean) / self.std
+        if self.resize:
+            input = self.transform(input, mode='bilinear', size=(224, 224), align_corners=False)
+            target = self.transform(target, mode='bilinear', size=(224, 224), align_corners=False)
+        loss = 0.0
+        x = input
+        y = target
+        for block in self.blocks:
+            x = block(x)
+            y = block(y)
+            loss += torch.nn.functional.l1_loss(x, y)
+        return loss
 
 class CustomNativeDataset(Dataset):
     def __init__(self, 
@@ -414,13 +453,19 @@ class INet(nn.Module):
             PositionalEncodingConv2d(num_filters*64, num_filters*64, kernel_size=1, stride=1, padding=0, bias=False),
             nn.GroupNorm(4, num_filters*64),
             nn.LeakyReLU(inplace=True),
-            PositionalEncodingConv2d(num_filters*64, num_filters*64, kernel_size=1, stride=1, padding=0, bias=False),
+            PositionalEncodingConv2d(num_filters*64, num_filters*96, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.GroupNorm(4, num_filters*96),
+            nn.LeakyReLU(inplace=True),
+            PositionalEncodingConv2d(num_filters*96, num_filters*64, kernel_size=1, stride=1, padding=0, bias=False),
             nn.GroupNorm(4, num_filters*64),
             nn.LeakyReLU(inplace=True),
         )
         self.dec = nn.Sequential(
             Reshape(num_filters*32, 2, 8, 8),
-            PositionalEncodingConv3d(num_filters*32, num_filters*32, kernel_size=1, stride=1, padding=0, bias=False),
+            PositionalEncodingConv3d(num_filters*32, num_filters*64, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.GroupNorm(4, num_filters*64),
+            nn.LeakyReLU(inplace=True),
+            PositionalEncodingConv3d(num_filters*64, num_filters*32, kernel_size=1, stride=1, padding=0, bias=False),
             nn.GroupNorm(4, num_filters*32),
             nn.LeakyReLU(inplace=True),
             PositionalEncodingConv3d(num_filters*32, num_filters*32, kernel_size=1, stride=1, padding=0, bias=False),
@@ -460,7 +505,10 @@ class PNet(nn.Module):
             DoubleConv3d(num_filters*16, num_filters*32), #8
             
             # transformation
-            PositionalEncodingConv3d(num_filters*32, num_filters*32, kernel_size=1, stride=1, padding=0, bias=False),
+            PositionalEncodingConv3d(num_filters*32, num_filters*64, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.GroupNorm(4, num_filters*64),
+            nn.LeakyReLU(inplace=True),
+            PositionalEncodingConv3d(num_filters*64, num_filters*32, kernel_size=1, stride=1, padding=0, bias=False),
             nn.GroupNorm(4, num_filters*32),
             nn.LeakyReLU(inplace=True),
             PositionalEncodingConv3d(num_filters*32, num_filters*32, kernel_size=1, stride=1, padding=0, bias=False),
@@ -469,7 +517,10 @@ class PNet(nn.Module):
             Reshape(num_filters*64, 8, 8),
         )
         self.dec = nn.Sequential(
-            PositionalEncodingConv2d(num_filters*64, num_filters*64, kernel_size=1, stride=1, padding=0, bias=False),
+            PositionalEncodingConv2d(num_filters*64, num_filters*96, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.GroupNorm(4, num_filters*96),
+            nn.LeakyReLU(inplace=True),
+            PositionalEncodingConv2d(num_filters*96, num_filters*64, kernel_size=1, stride=1, padding=0, bias=False),
             nn.GroupNorm(4, num_filters*64),
             nn.LeakyReLU(inplace=True),
             PositionalEncodingConv2d(num_filters*64, num_filters*64, kernel_size=1, stride=1, padding=0, bias=False),
@@ -513,8 +564,7 @@ class Model(pl.LightningModule):
             output_channels=1, num_filters=self.hparams.features
         )
         self.l1loss = nn.L1Loss()
-        self.tv_2d = TotalVariationLoss(is_3d=False)
-        self.tv_3d = TotalVariationLoss(is_3d=True)
+        self.vggperceptualoss = VGGPerceptualLoss()
     def forward(self, x, y, a, b):
         # return self.rnet(x)
         xy, feat_xy = self.inet(x)         # ct from xr
@@ -543,14 +593,15 @@ class Model(pl.LightningModule):
         loss_l1_fxy = self.l1loss(feat_xy, feat_yx) 
         loss_l1_fab = self.l1loss(feat_ab, feat_aba) 
         loss_l1_fba = self.l1loss(feat_ba, feat_bab) 
-        loss_tv_xy = self.tv_3d(xy, y)
-        loss_tv_yx = self.tv_2d(yx, x)
-        loss_tv_ab = self.tv_2d(aba, a)
-        loss_tv_ba = self.tv_3d(bab, b)
+        loss_perceptual_xy = self.vggperceptualoss(xy, y) 
+        loss_perceptual_yx = self.vggperceptualoss(yx, x) 
+        loss_perceptual_ab = self.vggperceptualoss(ab, b) 
+        loss_perceptual_ba = self.vggperceptualoss(ba, a) 
         loss_l1 = loss_l1_xy + loss_l1_yx  + loss_l1_ab + loss_l1_ba 
-        loss_tv = loss_tv_xy + loss_tv_yx  + loss_tv_ab + loss_tv_ba 
         loss_ft = loss_l1_fxy + loss_l1_fab + loss_l1_fba 
-        loss = loss_l1 + loss_ft + loss_tv
+        loss_perceptual = loss_perceptual_xy + loss_perceptual_yx \
+                        + loss_perceptual_ab + loss_perceptual_ba 
+        loss = loss_l1 + loss_ft + loss_perceptual
      
         mid = int(y.shape[1]/2)
         vis_images = torch.cat([torch.cat([x, y[:,mid:mid+1,:,:], xy[:,mid:mid+1,:,:], yx], dim=-1), 
@@ -565,15 +616,15 @@ class Model(pl.LightningModule):
                             'loss_l1_ab': loss_l1_ab,
                             'loss_l1_ba': loss_l1_ba,
                             'loss_l1': loss_l1,
-                            'loss_tv_xy': loss_tv_xy,
-                            'loss_tv_yx': loss_tv_yx,
-                            'loss_tv_ab': loss_tv_ab,
-                            'loss_tv_ba': loss_tv_ba,
-                            'loss_tv': loss_tv,
                             'loss_l1_fxy': loss_l1_fxy,
                             'loss_l1_fab': loss_l1_fab,
                             'loss_l1_fba': loss_l1_fba,
                             'loss_ft': loss_ft,
+                            'loss_perceptual_xy': loss_perceptual_xy,
+                            'loss_perceptual_yx': loss_perceptual_yx,
+                            'loss_perceptual_ab': loss_perceptual_ab,
+                            'loss_perceptual_ba': loss_perceptual_ba,
+                            'loss_perceptual': loss_perceptual,
                             'lr': self.learning_rate}
         return {'loss': loss, 'log': tensorboard_logs}
 
@@ -592,14 +643,15 @@ class Model(pl.LightningModule):
         loss_l1_fxy = self.l1loss(feat_xy, feat_yx) 
         loss_l1_fab = self.l1loss(feat_ab, feat_aba) 
         loss_l1_fba = self.l1loss(feat_ba, feat_bab) 
-        loss_tv_xy = self.tv_3d(xy, y)
-        loss_tv_yx = self.tv_2d(yx, x)
-        loss_tv_ab = self.tv_2d(aba, a)
-        loss_tv_ba = self.tv_3d(bab, b)
+        loss_perceptual_xy = self.vggperceptualoss(xy, y) 
+        loss_perceptual_yx = self.vggperceptualoss(yx, x) 
+        loss_perceptual_ab = self.vggperceptualoss(ab, b) 
+        loss_perceptual_ba = self.vggperceptualoss(ba, a) 
         loss_l1 = loss_l1_xy + loss_l1_yx  + loss_l1_ab + loss_l1_ba 
-        loss_tv = loss_tv_xy + loss_tv_yx  + loss_tv_ab + loss_tv_ba 
         loss_ft = loss_l1_fxy + loss_l1_fab + loss_l1_fba 
-        loss = loss_l1 + loss_ft + loss_tv
+        loss_perceptual = loss_perceptual_xy + loss_perceptual_yx \
+                        + loss_perceptual_ab + loss_perceptual_ba 
+        loss = loss_l1 + loss_ft + loss_perceptual
        
         mid = int(y.shape[1]/2)
         vis_images = torch.cat([torch.cat([x, y[:,mid:mid+1,:,:], xy[:,mid:mid+1,:,:], yx], dim=-1), 
@@ -770,8 +822,8 @@ if __name__ == '__main__':
     parser.add_argument('--distributed-backend', type=str, default='ddp', choices=('dp', 'ddp', 'ddp2'),
                         help='supports three options dp, ddp, ddp2')
     parser.add_argument('--use_amp', default=True, action='store_true', help='if true uses 16 bit precision')
-    parser.add_argument("--batch_size", type=int, default=2, help="size of the batches")
-    parser.add_argument("--num_workers", type=int, default=8, help="size of the workers")
+    parser.add_argument("--batch_size", type=int, default=1, help="size of the batches")
+    parser.add_argument("--num_workers", type=int, default=4, help="size of the workers")
     parser.add_argument("--lr", type=float, default=0.001, help="learning rate")
     parser.add_argument("--nb_layer", type=int, default=5, help="number of layers on u-net")
     parser.add_argument("--features", type=int, default=16, help="number of features in single layer")
