@@ -82,6 +82,39 @@ def worker_init_fn(worker_id):
     # np.random.seed(np.random.get_state()[1][0] + worker_id)
     torch.initial_seed()
 
+class TotalVariationLoss(nn.Module):
+    def __init__(self, is_3d=False):
+        super(TotalVariationLoss, self).__init__()
+        self.is_3d = is_3d
+
+    def tv(self, img):
+        if not torch.is_tensor(img):
+            raise TypeError(f"Input type is not a torch.Tensor. Got {type(img)}")
+        img_shape = img.shape
+        if len(img_shape) == 3 or len(img_shape) == 4:
+            pixel_dif1 = img[...,:,1:,:] - img[...,:,:-1,:]
+            pixel_dif2 = img[...,:,:,1:] - img[...,:,:,:-1]
+            reduce_axes = (-3, -2, -1)
+            if self.is_3d:
+                pixel_dif3 = img[...,1:,:,:] - img[...,:-1,:,:]
+        else:
+            raise ValueError("Expected input tensor to be of ndim 3 or 4, but got " + str(len(img_shape)))
+        if self.is_3d:
+            return pixel_dif1.abs().mean(dim=reduce_axes) \
+                 + pixel_dif2.abs().mean(dim=reduce_axes) \
+                 + pixel_dif3.abs().mean(dim=reduce_axes)
+        return pixel_dif1.abs().mean(dim=reduce_axes) \
+             + pixel_dif2.abs().mean(dim=reduce_axes)
+
+    def forward(self, img, dst):
+        # return total_variation(img)
+        tv_img = self.tv(img)
+        tv_dst = self.tv(dst)
+        return nn.L1Loss()(tv_img, tv_dst)
+
+
+
+
 class CustomNativeDataset(Dataset):
     def __init__(self, 
         imagepaireddir, 
@@ -283,18 +316,18 @@ class DoubleConv2d(nn.Module):
         super().__init__()
         self.pre = nn.Sequential(
             PositionalEncodingConv2d(source_channels, output_channels, kernel_size=4, stride=2, padding=1, bias=False),
-            nn.GroupNorm(8, output_channels),
+            nn.GroupNorm(4, output_channels),
             nn.LeakyReLU(inplace=True),
         )
         self.net = nn.Sequential(
             PositionalEncodingConv2d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
-            nn.GroupNorm(8, output_channels),
+            nn.GroupNorm(4, output_channels),
             nn.LeakyReLU(inplace=True),
         )
 
     def forward(self, x):
         tmp = self.pre(x)
-        ret = self.net(tmp) + tmp
+        ret = self.net(tmp) #+ tmp
         return ret
 
 class DoubleDeconv3d(nn.Module):
@@ -306,12 +339,12 @@ class DoubleDeconv3d(nn.Module):
         self.pre = nn.Sequential(
             PositionalEncodingConv3d(source_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
             nn.Upsample(scale_factor=2, mode='trilinear', align_corners=True),
-            nn.GroupNorm(8, output_channels),
+            nn.GroupNorm(4, output_channels),
             nn.LeakyReLU(inplace=True),
         )
         self.net = nn.Sequential(
             PositionalEncodingConv3d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
-            nn.GroupNorm(8, output_channels),
+            nn.GroupNorm(4, output_channels),
             nn.LeakyReLU(inplace=True),
         )
         
@@ -328,18 +361,18 @@ class DoubleConv3d(nn.Module):
         super().__init__()
         self.pre = nn.Sequential(
             PositionalEncodingConv3d(source_channels, output_channels, kernel_size=4, stride=2, padding=1, bias=False),
-            nn.GroupNorm(8, output_channels),
+            nn.GroupNorm(4, output_channels),
             nn.LeakyReLU(inplace=True),
         )
         self.net = nn.Sequential(
             PositionalEncodingConv3d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
-            nn.GroupNorm(8, output_channels),
+            nn.GroupNorm(4, output_channels),
             nn.LeakyReLU(inplace=True),
         )
         
     def forward(self, x):
         tmp = self.pre(x)
-        ret = self.net(tmp) + tmp
+        ret = self.net(tmp) #+ tmp
         return ret
 
 class DoubleDeconv2d(nn.Module):
@@ -351,12 +384,12 @@ class DoubleDeconv2d(nn.Module):
         self.pre = nn.Sequential(
             PositionalEncodingConv2d(source_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
-            nn.GroupNorm(8, output_channels),
+            nn.GroupNorm(4, output_channels),
             nn.LeakyReLU(inplace=True),
         )
         self.net = nn.Sequential(
             nn.Conv2d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
-            nn.GroupNorm(8, output_channels),
+            nn.GroupNorm(4, output_channels),
             nn.LeakyReLU(inplace=True),
         )
         
@@ -379,15 +412,19 @@ class INet(nn.Module):
 
             # Transformation
             PositionalEncodingConv2d(num_filters*64, num_filters*64, kernel_size=1, stride=1, padding=0, bias=False),
-            # nn.BatchNorm2d(num_filters*64),
-            nn.GroupNorm(8, num_filters*64),
+            nn.GroupNorm(4, num_filters*64),
             nn.LeakyReLU(inplace=True),
-            # nn.Dropout(),
+            PositionalEncodingConv2d(num_filters*64, num_filters*64, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.GroupNorm(4, num_filters*64),
+            nn.LeakyReLU(inplace=True),
         )
         self.dec = nn.Sequential(
             Reshape(num_filters*32, 2, 8, 8),
             PositionalEncodingConv3d(num_filters*32, num_filters*32, kernel_size=1, stride=1, padding=0, bias=False),
-            nn.GroupNorm(8, num_filters*32),
+            nn.GroupNorm(4, num_filters*32),
+            nn.LeakyReLU(inplace=True),
+            PositionalEncodingConv3d(num_filters*32, num_filters*32, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.GroupNorm(4, num_filters*32),
             nn.LeakyReLU(inplace=True),
 
             # 3D
@@ -424,13 +461,19 @@ class PNet(nn.Module):
             
             # transformation
             PositionalEncodingConv3d(num_filters*32, num_filters*32, kernel_size=1, stride=1, padding=0, bias=False),
-            nn.GroupNorm(8, num_filters*32),
+            nn.GroupNorm(4, num_filters*32),
+            nn.LeakyReLU(inplace=True),
+            PositionalEncodingConv3d(num_filters*32, num_filters*32, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.GroupNorm(4, num_filters*32),
             nn.LeakyReLU(inplace=True),
             Reshape(num_filters*64, 8, 8),
         )
         self.dec = nn.Sequential(
             PositionalEncodingConv2d(num_filters*64, num_filters*64, kernel_size=1, stride=1, padding=0, bias=False),
-            nn.GroupNorm(8, num_filters*64),
+            nn.GroupNorm(4, num_filters*64),
+            nn.LeakyReLU(inplace=True),
+            PositionalEncodingConv2d(num_filters*64, num_filters*64, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.GroupNorm(4, num_filters*64),
             nn.LeakyReLU(inplace=True),
             
             # 2D
@@ -442,7 +485,7 @@ class PNet(nn.Module):
             # nn.ConvTranspose2d(num_filters*2, num_filters*1, kernel_size=1, stride=1, padding=0, bias=False),
             PositionalEncodingConv2d(num_filters*2, num_filters*1, kernel_size=3, stride=1, padding=1, bias=False),
             # nn.BatchNorm2d(num_filters*1),
-            nn.GroupNorm(8, num_filters*1),
+            nn.GroupNorm(4, num_filters*1),
             nn.LeakyReLU(inplace=True),
             PositionalEncodingConv2d(num_filters*1, output_channels, kernel_size=1, stride=1, padding=0, bias=False),
             nn.Tanh(),
@@ -470,7 +513,8 @@ class Model(pl.LightningModule):
             output_channels=1, num_filters=self.hparams.features
         )
         self.l1loss = nn.L1Loss()
-
+        self.tv_2d = TotalVariationLoss(is_3d=False)
+        self.tv_3d = TotalVariationLoss(is_3d=True)
     def forward(self, x, y, a, b):
         # return self.rnet(x)
         xy, feat_xy = self.inet(x)         # ct from xr
@@ -499,9 +543,14 @@ class Model(pl.LightningModule):
         loss_l1_fxy = self.l1loss(feat_xy, feat_yx) 
         loss_l1_fab = self.l1loss(feat_ab, feat_aba) 
         loss_l1_fba = self.l1loss(feat_ba, feat_bab) 
+        loss_tv_xy = self.tv_3d(xy, y)
+        loss_tv_yx = self.tv_2d(yx, x)
+        loss_tv_ab = self.tv_2d(aba, a)
+        loss_tv_ba = self.tv_3d(bab, b)
         loss_l1 = loss_l1_xy + loss_l1_yx  + loss_l1_ab + loss_l1_ba 
+        loss_tv = loss_tv_xy + loss_tv_yx  + loss_tv_ab + loss_tv_ba 
         loss_ft = loss_l1_fxy + loss_l1_fab + loss_l1_fba 
-        loss = loss_l1 + loss_ft
+        loss = loss_l1 + loss_ft + loss_tv
      
         mid = int(y.shape[1]/2)
         vis_images = torch.cat([torch.cat([x, y[:,mid:mid+1,:,:], xy[:,mid:mid+1,:,:], yx], dim=-1), 
@@ -516,6 +565,11 @@ class Model(pl.LightningModule):
                             'loss_l1_ab': loss_l1_ab,
                             'loss_l1_ba': loss_l1_ba,
                             'loss_l1': loss_l1,
+                            'loss_tv_xy': loss_tv_xy,
+                            'loss_tv_yx': loss_tv_yx,
+                            'loss_tv_ab': loss_tv_ab,
+                            'loss_tv_ba': loss_tv_ba,
+                            'loss_tv': loss_tv,
                             'loss_l1_fxy': loss_l1_fxy,
                             'loss_l1_fab': loss_l1_fab,
                             'loss_l1_fba': loss_l1_fba,
@@ -538,9 +592,14 @@ class Model(pl.LightningModule):
         loss_l1_fxy = self.l1loss(feat_xy, feat_yx) 
         loss_l1_fab = self.l1loss(feat_ab, feat_aba) 
         loss_l1_fba = self.l1loss(feat_ba, feat_bab) 
+        loss_tv_xy = self.tv_3d(xy, y)
+        loss_tv_yx = self.tv_2d(yx, x)
+        loss_tv_ab = self.tv_2d(aba, a)
+        loss_tv_ba = self.tv_3d(bab, b)
         loss_l1 = loss_l1_xy + loss_l1_yx  + loss_l1_ab + loss_l1_ba 
+        loss_tv = loss_tv_xy + loss_tv_yx  + loss_tv_ab + loss_tv_ba 
         loss_ft = loss_l1_fxy + loss_l1_fab + loss_l1_fba 
-        loss = loss_l1 + loss_ft
+        loss = loss_l1 + loss_ft + loss_tv
        
         mid = int(y.shape[1]/2)
         vis_images = torch.cat([torch.cat([x, y[:,mid:mid+1,:,:], xy[:,mid:mid+1,:,:], yx], dim=-1), 
@@ -707,13 +766,13 @@ if __name__ == '__main__':
     parser.add_argument('--dimz', type=int, default=64)
     parser.add_argument('--lgdir', type=str, default='lightning_logs')
     parser.add_argument('--seed', type=int, default=42)
-    parser.add_argument("--gpus", default='4,5', help="number of available GPUs")
+    parser.add_argument("--gpus", default=-1, help="number of available GPUs")
     parser.add_argument('--distributed-backend', type=str, default='ddp', choices=('dp', 'ddp', 'ddp2'),
                         help='supports three options dp, ddp, ddp2')
     parser.add_argument('--use_amp', default=True, action='store_true', help='if true uses 16 bit precision')
     parser.add_argument("--batch_size", type=int, default=2, help="size of the batches")
     parser.add_argument("--num_workers", type=int, default=8, help="size of the workers")
-    parser.add_argument("--lr", type=float, default=0.01, help="learning rate")
+    parser.add_argument("--lr", type=float, default=0.001, help="learning rate")
     parser.add_argument("--nb_layer", type=int, default=5, help="number of layers on u-net")
     parser.add_argument("--features", type=int, default=16, help="number of features in single layer")
     parser.add_argument("--bilinear", action='store_true', default=False,
