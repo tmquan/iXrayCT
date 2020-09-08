@@ -205,10 +205,10 @@ class CustomNativeDataset(Dataset):
         labelunpaired = skimage.io.imread(self.labelunpairedfiles[bidx])
 
         if self.transforms is not None:
-            transformed = self.transforms(image=np.transpose(np.expand_dims(imagepaired, 0), (1, 2, 0)))
-            imagepaired = np.squeeze(np.transpose(transformed['image'], (2, 0, 1)), 0)
-            transformed = self.transforms(image=np.transpose(labelpaired, (1, 2, 0)))
-            labelpaired = np.transpose(transformed['image'], (2, 0, 1))
+            # transformed = self.transforms(image=np.transpose(np.expand_dims(imagepaired, 0), (1, 2, 0)))
+            # imagepaired = np.squeeze(np.transpose(transformed['image'], (2, 0, 1)), 0)
+            # transformed = self.transforms(image=np.transpose(labelpaired, (1, 2, 0)))
+            # labelpaired = np.transpose(transformed['image'], (2, 0, 1))
 
             untransformed = self.transforms(image=np.transpose(np.expand_dims(imageunpaired, 0), (1, 2, 0)))
             imageunpaired = np.squeeze(np.transpose(untransformed['image'], (2, 0, 1)), 0)
@@ -694,10 +694,10 @@ class Model(pl.LightningModule):
             # AB.RandomScale(scale_limit=(0.8, 1.2), p=0.8),
             # AB.Equalize(p=0.8),
             # AB.CLAHE(p=0.8),
-            # AB.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.50),
-            # AB.RandomGamma(gamma_limit=(80, 120), p=0.50),
-            AB.GaussianBlur(p=0.05),
-            AB.GaussNoise(p=0.05),
+            AB.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.50),
+            AB.RandomGamma(gamma_limit=(80, 120), p=0.50),
+            AB.GaussianBlur(p=0.5),
+            AB.GaussNoise(p=0.5),
             AB.Resize(width=self.hparams.dimy, height=self.hparams.dimx, p=1.0),
             # AB.ToTensor(),
         ])
