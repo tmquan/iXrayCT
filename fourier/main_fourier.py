@@ -674,12 +674,12 @@ class Model(pl.LightningModule):
         # optimizer = torch.optim.Adam([p for p in self.parameters() if p.requires_grad], lr=self.hparams.lr, eps=1e-08)
         # scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=2e-4, total_steps=1000)
         # return [optimizer], [scheduler]
-        # optimizer = torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
-        # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=10)
-        # return [optimizer], [scheduler]
-        optimizer = torch.optim.SGD(self.parameters(), lr=0.1, momentum=0.9, nesterov=True)
-        scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=0.1, 
-                                                        steps_per_epoch=1000, epochs=10)
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=10)
+        return [optimizer], [scheduler]
+        # optimizer = torch.optim.SGD(self.parameters(), lr=0.1, momentum=0.9, nesterov=True)
+        # scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=0.1, 
+        #                                                 steps_per_epoch=1000, epochs=10)
         return [optimizer], [scheduler]
 
     def __dataloader(self):
