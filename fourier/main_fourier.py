@@ -430,7 +430,7 @@ class DoubleDeconv2d(nn.Module):
             nn.LeakyReLU(inplace=True),
         )
         self.net = nn.Sequential(
-            nn.Conv2d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
+            PositionalEncodingConv2d(output_channels, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
             nn.GroupNorm(4, output_channels),
             nn.LeakyReLU(inplace=True),
         )
