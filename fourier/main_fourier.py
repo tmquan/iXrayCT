@@ -368,6 +368,7 @@ class DoubleConv2d(nn.Module):
     def forward(self, x):
         tmp = self.pre(x)
         ret = self.net(tmp) + tmp
+        # print(ret.shape)
         return ret
 
 class DoubleDeconv3d(nn.Module):
@@ -413,6 +414,7 @@ class DoubleConv3d(nn.Module):
     def forward(self, x):
         tmp = self.pre(x)
         ret = self.net(tmp) + tmp
+        # print(ret.shape)
         return ret
 
 class DoubleDeconv2d(nn.Module):
@@ -443,47 +445,46 @@ class INet(nn.Module):
         super().__init__()
         self.enc = nn.Sequential(
             # 2D
-            DoubleConv2d(source_channels, num_filters*4), # 128
-            DoubleConv2d(num_filters*4, num_filters*8), # 64
-            DoubleConv2d(num_filters*8, num_filters*16), # 32
-            DoubleConv2d(num_filters*16, num_filters*32), # 16
-            DoubleConv2d(num_filters*32, num_filters*64), # 8
+            DoubleConv2d(source_channels, num_filters*4),   # NF x 4 x 128 x 128
+            DoubleConv2d(num_filters*4, num_filters*8),     # NF x 8 x 64 x 64
+            DoubleConv2d(num_filters*8, num_filters*16),    # NF x 16 x 32 x 32
+            DoubleConv2d(num_filters*16, num_filters*32),   # NF x 32 x 16 x 16
+            DoubleConv2d(num_filters*32, num_filters*64),   # NF x 64 x 8 x 8
+            DoubleConv2d(num_filters*64, num_filters*80),   # NF x 80 x 4 x 4
             
 
             # Transformation
-            PositionalEncodingConv2d(num_filters*64, num_filters*64, kernel_size=1, stride=1, padding=0, bias=False),
-            nn.GroupNorm(4, num_filters*64),
+            nn.Conv2d(num_filters*80, num_filters*80, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.GroupNorm(4, num_filters*80),
+            nn.Flatten(),
             nn.LeakyReLU(inplace=True),
-            PositionalEncodingConv2d(num_filters*64, num_filters*96, kernel_size=1, stride=1, padding=0, bias=False),
-            nn.GroupNorm(4, num_filters*96),
+            nn.Linear(10240, 1024),
             nn.LeakyReLU(inplace=True),
-            PositionalEncodingConv2d(num_filters*96, num_filters*64, kernel_size=1, stride=1, padding=0, bias=False),
-            nn.GroupNorm(4, num_filters*64),
+            nn.Linear(1024, 64),
+            nn.LeakyReLU(inplace=True),
+            nn.Linear(64, 1024),
+            nn.LeakyReLU(inplace=True),
+            nn.Linear(1024, 10240),
             nn.LeakyReLU(inplace=True),
         )
         self.dec = nn.Sequential(
-            Reshape(num_filters*32, 2, 8, 8),
-            PositionalEncodingConv3d(num_filters*32, num_filters*64, kernel_size=1, stride=1, padding=0, bias=False),
-            nn.GroupNorm(4, num_filters*64),
-            nn.LeakyReLU(inplace=True),
-            PositionalEncodingConv3d(num_filters*64, num_filters*32, kernel_size=1, stride=1, padding=0, bias=False),
-            nn.GroupNorm(4, num_filters*32),
-            nn.LeakyReLU(inplace=True),
-            PositionalEncodingConv3d(num_filters*32, num_filters*32, kernel_size=1, stride=1, padding=0, bias=False),
-            nn.GroupNorm(4, num_filters*32),
+            Reshape(num_filters*80, 1, 4, 4), # NF x 80 x 1 x 4 x 4
+            nn.Conv3d(num_filters*80, num_filters*80, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.GroupNorm(4, num_filters*80),
             nn.LeakyReLU(inplace=True),
 
             # 3D
-            DoubleDeconv3d(num_filters*32, num_filters*16), #2, 1024, 4, 16, 16]
-            DoubleDeconv3d(num_filters*16, num_filters*8),
-            DoubleDeconv3d(num_filters*8, num_filters*4),
-            DoubleDeconv3d(num_filters*4, num_filters*2),
-            DoubleDeconv3d(num_filters*2, num_filters*1),
+            DoubleDeconv3d(num_filters*80, num_filters*64), # NF x 64 x 2 x 8 x 8
+            DoubleDeconv3d(num_filters*64, num_filters*32), # NF x 32 x 4 x 16 x 16
+            DoubleDeconv3d(num_filters*32, num_filters*16), # NF x 16 x 8 x 32 x 32
+            DoubleDeconv3d(num_filters*16, num_filters*8),  # NF x 8 x 16 x 64 x 64
+            DoubleDeconv3d(num_filters*8, num_filters*4),   # NF x 4 x 32 x 128 x 128
+            DoubleDeconv3d(num_filters*4, num_filters*1),   # NF x 1 x 64 x 256 x 256
             # nn.ConvTranspose3d(num_filters*1, output_channels, kernel_size=1, stride=1, padding=0, bias=False),
-            PositionalEncodingConv3d(num_filters*1, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.Conv3d(num_filters*1, output_channels, kernel_size=3, stride=1, padding=1, bias=False),
             nn.LeakyReLU(inplace=True),
             Squeeze(dim=1),
-            PositionalEncodingConv2d(64, 64, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.Conv2d(64, 64, kernel_size=1, stride=1, padding=0, bias=False),
             nn.Tanh()
         )
     
@@ -499,47 +500,46 @@ class PNet(nn.Module):
         # in: 1 x 64 x 128 x 128
         self.enc = nn.Sequential(
             Unsqueeze(1),
-            DoubleConv3d(1, num_filters*2), #128
-            DoubleConv3d(num_filters*2, num_filters*4), #64
-            DoubleConv3d(num_filters*4, num_filters*8), #32
-            DoubleConv3d(num_filters*8, num_filters*16), #16 
-            DoubleConv3d(num_filters*16, num_filters*32), #8
+            DoubleConv3d(1, num_filters*2),                 # NF x 2 x 32 x 128 x 128
+            DoubleConv3d(num_filters*2, num_filters*4),     # NF x 4 x 16 x 64 x 64
+            DoubleConv3d(num_filters*4, num_filters*8),     # NF x 8 x 8 x 32 x 32
+            DoubleConv3d(num_filters*8, num_filters*16),    # NF x 16 x 4 x 16 x 16
+            DoubleConv3d(num_filters*16, num_filters*32),   # NF x 32 x 2 x 8 x 8
+            DoubleConv3d(num_filters*32, num_filters*64),   # NF x 64 x 1 x 4 x 4
             
             # transformation
-            PositionalEncodingConv3d(num_filters*32, num_filters*64, kernel_size=1, stride=1, padding=0, bias=False),
-            nn.GroupNorm(4, num_filters*64),
+            nn.Conv3d(num_filters*64, num_filters*80, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.GroupNorm(4, num_filters*80),
             nn.LeakyReLU(inplace=True),
-            PositionalEncodingConv3d(num_filters*64, num_filters*32, kernel_size=1, stride=1, padding=0, bias=False),
-            nn.GroupNorm(4, num_filters*32),
+            nn.Flatten(),
+            nn.Linear(10240, 1024),
             nn.LeakyReLU(inplace=True),
-            PositionalEncodingConv3d(num_filters*32, num_filters*32, kernel_size=1, stride=1, padding=0, bias=False),
-            nn.GroupNorm(4, num_filters*32),
+            nn.Linear(1024, 64),
             nn.LeakyReLU(inplace=True),
-            Reshape(num_filters*64, 8, 8),
+            nn.Linear(64, 1024),
+            nn.LeakyReLU(inplace=True),
+            nn.Linear(1024, 10240),
+            nn.LeakyReLU(inplace=True),
+            Reshape(num_filters*80, 4, 4), # NF x 80 x 4 x 4
         )
         self.dec = nn.Sequential(
-            PositionalEncodingConv2d(num_filters*64, num_filters*96, kernel_size=1, stride=1, padding=0, bias=False),
-            nn.GroupNorm(4, num_filters*96),
-            nn.LeakyReLU(inplace=True),
-            PositionalEncodingConv2d(num_filters*96, num_filters*64, kernel_size=1, stride=1, padding=0, bias=False),
-            nn.GroupNorm(4, num_filters*64),
-            nn.LeakyReLU(inplace=True),
-            PositionalEncodingConv2d(num_filters*64, num_filters*64, kernel_size=1, stride=1, padding=0, bias=False),
-            nn.GroupNorm(4, num_filters*64),
+            nn.Conv2d(num_filters*80, num_filters*80, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.GroupNorm(4, num_filters*80),
             nn.LeakyReLU(inplace=True),
             
             # 2D
-            DoubleDeconv2d(num_filters*64, num_filters*32), #16
-            DoubleDeconv2d(num_filters*32, num_filters*16), #32
-            DoubleDeconv2d(num_filters*16, num_filters*8), #64
-            DoubleDeconv2d(num_filters*8, num_filters*4), #128
-            DoubleDeconv2d(num_filters*4, num_filters*2), #256
+            DoubleDeconv2d(num_filters*80, num_filters*64), # NF x 64 x 8 x 8
+            DoubleDeconv2d(num_filters*64, num_filters*32), # NF x 32 x 16 x 16
+            DoubleDeconv2d(num_filters*32, num_filters*16), # NF x 16 x 32 x 32
+            DoubleDeconv2d(num_filters*16, num_filters*8),  # NF x 8 x 64 x 64
+            DoubleDeconv2d(num_filters*8, num_filters*4),   # NF x 4 x 128 x 128
+            DoubleDeconv2d(num_filters*4, num_filters*1),   # NF x 1 x 256 x 256
             # nn.ConvTranspose2d(num_filters*2, num_filters*1, kernel_size=1, stride=1, padding=0, bias=False),
-            PositionalEncodingConv2d(num_filters*2, num_filters*1, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.Conv2d(num_filters*1, num_filters*1, kernel_size=3, stride=1, padding=1, bias=False),
             # nn.BatchNorm2d(num_filters*1),
             nn.GroupNorm(4, num_filters*1),
             nn.LeakyReLU(inplace=True),
-            PositionalEncodingConv2d(num_filters*1, output_channels, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.Conv2d(num_filters*1, output_channels, kernel_size=1, stride=1, padding=0, bias=False),
             nn.Tanh(),
         )
 
@@ -565,7 +565,7 @@ class Model(pl.LightningModule):
             output_channels=1, num_filters=self.hparams.features
         )
         self.l1loss = nn.L1Loss()
-        self.vggperceptualoss = VGGPerceptualLoss()
+        # self.vggperceptualoss = VGGPerceptualLoss()
     def forward(self, x, y, a, b):
         # return self.rnet(x)
         xy, feat_xy = self.inet(x)         # ct from xr
@@ -591,18 +591,18 @@ class Model(pl.LightningModule):
         loss_l1_yx = self.l1loss(yx, x) 
         loss_l1_ab = self.l1loss(aba, a) 
         loss_l1_ba = self.l1loss(bab, b) 
-        loss_l1_fxy = self.l1loss(feat_xy, feat_yx) 
-        loss_l1_fab = self.l1loss(feat_ab, feat_aba) 
-        loss_l1_fba = self.l1loss(feat_ba, feat_bab) 
-        loss_perceptual_xy = self.vggperceptualoss(xy, y) 
-        loss_perceptual_yx = self.vggperceptualoss(yx, x) 
-        loss_perceptual_ab = self.vggperceptualoss(ab, b) 
-        loss_perceptual_ba = self.vggperceptualoss(ba, a) 
+        # loss_l1_fxy = self.l1loss(feat_xy, feat_yx) 
+        # loss_l1_fab = self.l1loss(feat_ab, feat_aba) 
+        # loss_l1_fba = self.l1loss(feat_ba, feat_bab) 
+        # loss_perceptual_xy = self.vggperceptualoss(xy, y) 
+        # loss_perceptual_yx = self.vggperceptualoss(yx, x) 
+        # loss_perceptual_ab = self.vggperceptualoss(ab, b) 
+        # loss_perceptual_ba = self.vggperceptualoss(ba, a) 
         loss_l1 = loss_l1_xy + loss_l1_yx  + loss_l1_ab + loss_l1_ba 
-        loss_ft = loss_l1_fxy + loss_l1_fab + loss_l1_fba 
-        loss_perceptual = loss_perceptual_xy + loss_perceptual_yx \
-                        + loss_perceptual_ab + loss_perceptual_ba 
-        loss = loss_l1 + loss_ft + loss_perceptual
+        # loss_ft = loss_l1_fxy + loss_l1_fab + loss_l1_fba 
+        # loss_perceptual = loss_perceptual_xy + loss_perceptual_yx \
+        #                 + loss_perceptual_ab + loss_perceptual_ba 
+        loss = loss_l1 #+ loss_ft #+ loss_perceptual
      
         mid = int(y.shape[1]/2)
         vis_images = torch.cat([torch.cat([x, y[:,mid:mid+1,:,:], xy[:,mid:mid+1,:,:], yx], dim=-1), 
@@ -617,15 +617,15 @@ class Model(pl.LightningModule):
                             'loss_l1_ab': loss_l1_ab,
                             'loss_l1_ba': loss_l1_ba,
                             'loss_l1': loss_l1,
-                            'loss_l1_fxy': loss_l1_fxy,
-                            'loss_l1_fab': loss_l1_fab,
-                            'loss_l1_fba': loss_l1_fba,
-                            'loss_ft': loss_ft,
-                            'loss_perceptual_xy': loss_perceptual_xy,
-                            'loss_perceptual_yx': loss_perceptual_yx,
-                            'loss_perceptual_ab': loss_perceptual_ab,
-                            'loss_perceptual_ba': loss_perceptual_ba,
-                            'loss_perceptual': loss_perceptual,
+                            # 'loss_l1_fxy': loss_l1_fxy,
+                            # 'loss_l1_fab': loss_l1_fab,
+                            # 'loss_l1_fba': loss_l1_fba,
+                            # 'loss_ft': loss_ft,
+                            # 'loss_perceptual_xy': loss_perceptual_xy,
+                            # 'loss_perceptual_yx': loss_perceptual_yx,
+                            # 'loss_perceptual_ab': loss_perceptual_ab,
+                            # 'loss_perceptual_ba': loss_perceptual_ba,
+                            # 'loss_perceptual': loss_perceptual,
                             # 'lr': self.trainer.lr_schedulers[0].get_lr()[0]
                             }
         return {'loss': loss, 'log': tensorboard_logs}
@@ -642,18 +642,18 @@ class Model(pl.LightningModule):
         loss_l1_yx = self.l1loss(yx, x) 
         loss_l1_ab = self.l1loss(aba, a) 
         loss_l1_ba = self.l1loss(bab, b) 
-        loss_l1_fxy = self.l1loss(feat_xy, feat_yx) 
-        loss_l1_fab = self.l1loss(feat_ab, feat_aba) 
-        loss_l1_fba = self.l1loss(feat_ba, feat_bab) 
-        loss_perceptual_xy = self.vggperceptualoss(xy, y) 
-        loss_perceptual_yx = self.vggperceptualoss(yx, x) 
-        loss_perceptual_ab = self.vggperceptualoss(ab, b) 
-        loss_perceptual_ba = self.vggperceptualoss(ba, a) 
+        # loss_l1_fxy = self.l1loss(feat_xy, feat_yx) 
+        # loss_l1_fab = self.l1loss(feat_ab, feat_aba) 
+        # loss_l1_fba = self.l1loss(feat_ba, feat_bab) 
+        # loss_perceptual_xy = self.vggperceptualoss(xy, y) 
+        # loss_perceptual_yx = self.vggperceptualoss(yx, x) 
+        # loss_perceptual_ab = self.vggperceptualoss(ab, b) 
+        # loss_perceptual_ba = self.vggperceptualoss(ba, a) 
         loss_l1 = loss_l1_xy + loss_l1_yx  + loss_l1_ab + loss_l1_ba 
-        loss_ft = loss_l1_fxy + loss_l1_fab + loss_l1_fba 
-        loss_perceptual = loss_perceptual_xy + loss_perceptual_yx \
-                        + loss_perceptual_ab + loss_perceptual_ba 
-        loss = loss_l1 + loss_ft + loss_perceptual
+        # loss_ft = loss_l1_fxy + loss_l1_fab + loss_l1_fba 
+        # loss_perceptual = loss_perceptual_xy + loss_perceptual_yx \
+        #                 + loss_perceptual_ab + loss_perceptual_ba 
+        loss = loss_l1 #+ loss_ft #+ loss_perceptual
        
         mid = int(y.shape[1]/2)
         vis_images = torch.cat([torch.cat([x, y[:,mid:mid+1,:,:], xy[:,mid:mid+1,:,:], yx], dim=-1), 
@@ -833,7 +833,7 @@ if __name__ == '__main__':
     parser.add_argument("--num_workers", type=int, default=4, help="size of the workers")
     parser.add_argument("--lr", type=float, default=0.001, help="learning rate")
     parser.add_argument("--nb_layer", type=int, default=5, help="number of layers on u-net")
-    parser.add_argument("--features", type=int, default=16, help="number of features in single layer")
+    parser.add_argument("--features", type=int, default=8, help="number of features in single layer")
     parser.add_argument("--bilinear", action='store_true', default=False,
                         help="whether to use bilinear interpolation or transposed")
     parser.add_argument("--grad_batches", type=int, default=1, help="number of batches to accumulate")
