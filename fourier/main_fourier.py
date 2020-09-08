@@ -26,8 +26,9 @@ from torch.utils.data.distributed import DistributedSampler
 
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer
-from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
+from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, LearningRateLogger
 from pytorch_lightning.loggers import WandbLogger
+# from pytorch_lightning.callbacks import LearningRateLogger
 
 # import kornia
 import scipy.ndimage
@@ -366,7 +367,7 @@ class DoubleConv2d(nn.Module):
 
     def forward(self, x):
         tmp = self.pre(x)
-        ret = self.net(tmp) #+ tmp
+        ret = self.net(tmp) + tmp
         return ret
 
 class DoubleDeconv3d(nn.Module):
@@ -411,7 +412,7 @@ class DoubleConv3d(nn.Module):
         
     def forward(self, x):
         tmp = self.pre(x)
-        ret = self.net(tmp) #+ tmp
+        ret = self.net(tmp) + tmp
         return ret
 
 class DoubleDeconv2d(nn.Module):
@@ -554,7 +555,7 @@ class Model(pl.LightningModule):
         self.example_input_array = torch.rand(2, 1, 256, 256), torch.rand(2, 64, 256, 256), \
                                    torch.rand(2, 1, 256, 256), torch.rand(2, 64, 256, 256)
         self.hparams = hparams
-        self.learning_rate = self.hparams.lr
+        # self.learning_rate = self.hparams.lr
         self.inet = INet(
             source_channels=1, 
             output_channels=1, num_filters=self.hparams.features
@@ -625,7 +626,8 @@ class Model(pl.LightningModule):
                             'loss_perceptual_ab': loss_perceptual_ab,
                             'loss_perceptual_ba': loss_perceptual_ba,
                             'loss_perceptual': loss_perceptual,
-                            'lr': self.learning_rate}
+                            # 'lr': self.trainer.lr_schedulers[0].get_lr()[0]
+                            }
         return {'loss': loss, 'log': tensorboard_logs}
 
     def validation_step(self, batch, batch_nb):
@@ -672,9 +674,13 @@ class Model(pl.LightningModule):
         # optimizer = torch.optim.Adam([p for p in self.parameters() if p.requires_grad], lr=self.hparams.lr, eps=1e-08)
         # scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=2e-4, total_steps=1000)
         # return [optimizer], [scheduler]
-        opt = torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
-        sch = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=10)
-        return [opt], [sch]
+        # optimizer = torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
+        # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=10)
+        # return [optimizer], [scheduler]
+        optimizer = torch.optim.SGD(self.parameters(), lr=0.1, momentum=0.9, nesterov=True)
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=0.1, 
+                                                        steps_per_epoch=1000, epochs=10)
+        return [optimizer], [scheduler]
 
     def __dataloader(self):
         # train_tfm = None
@@ -800,6 +806,7 @@ def main(hparams):
         early_stop_callback=stop_callback,
         gpus=hparams.gpus,
         # logger=logger,
+        callbacks=[LearningRateLogger()],
         max_epochs=hparams.epochs,
         accumulate_grad_batches=hparams.grad_batches,
         distributed_backend=hparams.distributed_backend,
