@@ -278,32 +278,6 @@ class CustomNativeDataset(Dataset):
                        datetime.datetime.now().millisecond)
 
     def __getitem__(self, idx):
-        # pidx = torch.randint(len(self.imagepairedfiles), (1, 1))
-        # imagepaired = skimage.io.imread(self.imagepairedfiles[pidx])
-        # labelpaired = skimage.io.imread(self.labelpairedfiles[pidx])
-
-        # aidx = torch.randint(len(self.imageunpairedfiles), (1, 1))
-        # bidx = torch.randint(len(self.labelunpairedfiles), (1, 1))
-        # imageunpaired = skimage.io.imread(self.imageunpairedfiles[aidx])
-        # labelunpaired = skimage.io.imread(self.labelunpairedfiles[bidx])
-
-        # if self.transforms is not None:
-        #     untransformed = self.transforms(image=np.transpose(np.expand_dims(imageunpaired, 0), (1, 2, 0)))
-        #     imageunpaired = np.squeeze(np.transpose(untransformed['image'], (2, 0, 1)), 0)
-        #     untransformed = self.transforms(image=np.transpose(labelunpaired, (1, 2, 0)))
-        #     labelunpaired = np.transpose(untransformed['image'], (2, 0, 1))
-
-
-        # imagepaired = cv2.resize(imagepaired, (256, 256))
-        # labelpaired = scipy.ndimage.zoom(labelpaired, scale, order=3)
-        # imageunpaired = cv2.resize(imageunpaired, (256, 256))
-        # labelunpaired = scipy.ndimage.zoom(labelunpaired, scale, order=3)
-
-        # return torch.Tensor(imagepaired).float().unsqueeze_(0),   \
-        #     torch.Tensor(labelpaired).float(),                 \
-        #     torch.Tensor(imageunpaired).float().unsqueeze_(0), \
-        #     torch.Tensor(labelunpaired).float(),
-
         aidx = torch.randint(len(self.ct3xr2_ct3_unpaired_files), (1, 1))     
         bidx = torch.randint(len(self.ct3xr2_xr2_unpaired_files), (1, 1))     
         ct3xr2_ct3_unpaired = skimage.io.imread(self.ct3xr2_ct3_unpaired_files[aidx]).astype(np.uint8)         
@@ -375,14 +349,14 @@ class CustomNativeDataset(Dataset):
         xr2covid2_lbl_paired = torch.Tensor( cv2.resize(xr2covid2_lbl_paired, (256, 256)) ).float().unsqueeze_(0)
                 
         return [
-            ct3xr2_ct3_paired,
-            ct3xr2_xr2_paired,
-            xr2ct3_xr2_paired,
-            xr2ct3_ct3_paired,
             ct3xr2_ct3_unpaired,
             ct3xr2_xr2_unpaired,
             xr2ct3_xr2_unpaired,
             xr2ct3_ct3_unpaired,
+            ct3xr2_ct3_paired,
+            ct3xr2_xr2_paired,
+            xr2ct3_xr2_paired,
+            xr2ct3_ct3_paired,
             ct3lung3_img_paired,
             ct3lung3_lbl_paired,
             ct3covid3_img_paired,
@@ -415,14 +389,14 @@ class Model(pl.LightningModule):
         self.l1loss = nn.L1Loss()
 
     def forward(self, 
-                ct3xr2_ct3_paired,
-                ct3xr2_xr2_paired,
-                xr2ct3_xr2_paired,
-                xr2ct3_ct3_paired,
                 ct3xr2_ct3_unpaired,
                 ct3xr2_xr2_unpaired,
                 xr2ct3_xr2_unpaired,
                 xr2ct3_ct3_unpaired,
+                ct3xr2_ct3_paired,
+                ct3xr2_xr2_paired,
+                xr2ct3_xr2_paired,
+                xr2ct3_ct3_paired,
                 ct3lung3_img_paired,
                 ct3lung3_lbl_paired,
                 ct3covid3_img_paired,
@@ -430,7 +404,7 @@ class Model(pl.LightningModule):
                 xr2lung2_img_paired,
                 xr2lung2_lbl_paired,
                 xr2covid2_img_paired,
-                xr2covid2_lbl_paired
+                xr2covid2_lbl_paired,
                 ):
         pass
         # xy = self.inet(x)         # ct from xr
