@@ -135,6 +135,16 @@ class CustomNativeDataset(Dataset):
         scale = [64.0 / labelpaired.shape[0], 
         		 256.0/labelpaired.shape[1], 
         		 256.0/labelpaired.shape[2]]
+
+        def bbox2(img):
+            rows = np.any(img, axis=1)
+            cols = np.any(img, axis=0)
+            ymin, ymax = np.where(rows)[0][[0, -1]]
+            xmin, xmax = np.where(cols)[0][[0, -1]]
+            return img[ymin:ymax+1, xmin:xmax+1]
+
+        imagepaired = bbox2(imagepaired)                   
+        imageunpaired = bbox2(imageunpaired)                   
         imagepaired = cv2.resize(imagepaired, (256, 256))
         labelpaired = scipy.ndimage.zoom(labelpaired, scale, order=3)
         imageunpaired = cv2.resize(imageunpaired, (256, 256))
@@ -189,7 +199,7 @@ class Model(pl.LightningModule):
         loss_l1_yx = self.l1loss(yx, x) 
         loss_l1_ab = self.l1loss(aba, a) 
         loss_l1_ba = self.l1loss(bab, b) 
-        loss_l1 = loss_l1_xy + loss_l1_yx  + loss_l1_ab + loss_l1_ba 
+        loss_l1 = 1e2*loss_l1_xy + 1e2*loss_l1_yx  + loss_l1_ab + loss_l1_ba 
         loss = loss_l1 
      
         mid = int(y.shape[1]/2)
@@ -219,7 +229,7 @@ class Model(pl.LightningModule):
         loss_l1_yx = self.l1loss(yx, x) 
         loss_l1_ab = self.l1loss(aba, a) 
         loss_l1_ba = self.l1loss(bab, b) 
-        loss_l1 = loss_l1_xy + loss_l1_yx  + loss_l1_ab + loss_l1_ba 
+        loss_l1 = 1e2*loss_l1_xy + 1e2*loss_l1_yx  + loss_l1_ab + loss_l1_ba 
 
         loss = loss_l1 
        
