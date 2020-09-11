@@ -210,12 +210,14 @@ class Skip3d(nn.Sequential):
                                 stride=stride,
                                 padding=padding,
                                 bias=bias) 
+        self.dropout = nn.Dropout()
 
     def forward(self, x):
         shape = x.shape
         y = self.conv2d(x)
         z = y.view([shape[0], shape[1], -1, shape[2], shape[3]]).transpose(2, 3) 
-        return z
+        w = self.dropout(z)
+        return w
 
 
 class Skip2d(nn.Sequential):
@@ -235,13 +237,13 @@ class Skip2d(nn.Sequential):
                                 stride=stride,
                                 padding=padding,
                                 bias=bias) 
-
+        self.dropout = nn.Dropout()
     def forward(self, x):
         y = x.transpose(2, 3)
         shape = y.shape
         z = y.reshape([shape[0], shape[1]*shape[2], shape[3], shape[4]]) 
-        z = self.conv2d(z)
-        return z
+        w = self.dropout(self.conv2d(z))
+        return w
 
 
 class INet(nn.Module):
@@ -277,6 +279,7 @@ class INet(nn.Module):
             nn.LeakyReLU(inplace=True),
             nn.Linear(num_filters*num_factors[8], num_filters*num_factors[8]),
             nn.LeakyReLU(inplace=True),
+            nn.Dropout(),
             nn.Linear(num_filters*num_factors[8], num_filters*num_factors[8]),
             nn.LeakyReLU(inplace=True),
             nn.Linear(num_filters*num_factors[8], num_filters*num_factors[8]),
@@ -387,6 +390,7 @@ class PNet(nn.Module):
             nn.LeakyReLU(inplace=True),
             nn.Linear(num_filters*num_factors[8], num_filters*num_factors[8]),
             nn.LeakyReLU(inplace=True),
+            nn.Dropout(),
             nn.Linear(num_filters*num_factors[8], num_filters*num_factors[8]),
             nn.LeakyReLU(inplace=True),
             nn.Linear(num_filters*num_factors[8], num_filters*num_factors[8]),
