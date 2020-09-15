@@ -31,7 +31,7 @@ warnings.filterwarnings('ignore', '.*output shape of zoom.*')
 
 # from model import INet
 # from model import PNet
-from model import Generator, Discriminator
+from model import PGNet, PDNet #, Generator, Discriminator
 
 train_image_paired_dir = ['/u01/data/iXrayCT_COVID/data_resized/train/paired/RADIOPAEDIA/pos/xr2/',
                           '/u01/data/iXrayCT_COVID/data_resized/train/paired/RADIOPAEDIA/neg/xr2/',
@@ -204,19 +204,21 @@ def g_path_regularize(fake_img, latents, mean_path_length, decay=0.01):
     return path_penalty, path_mean.detach(), path_lengths
 
 
-def make_noise(batch, latent_dim, n_noise, device):
-    if n_noise == 1:
-        return torch.randn(batch, latent_dim, device=device)
-    noises = torch.randn(n_noise, batch, latent_dim, device=device).unbind(0)
-    return noises
+# def make_noise(batch, latent_dim, n_noise, device):
+#     if n_noise == 1:
+#         return torch.randn(batch, latent_dim, device=device)
+#     noises = torch.randn(n_noise, batch, latent_dim, device=device).unbind(0)
+#     return noises
 
 
-def mixing_noise(batch, latent_dim, prob, device):
-    if prob > 0 and random.random() < prob:
-        return make_noise(batch, latent_dim, 2, device)
-    else:
-        return [make_noise(batch, latent_dim, 1, device)]
+# def mixing_noise(batch, latent_dim, prob, device):
+#     if prob > 0 and random.random() < prob:
+#         return make_noise(batch, latent_dim, 2, device)
+#     else:
+#         return [make_noise(batch, latent_dim, 1, device)]
 
+
+########################################################################################################
 
 ########################################################################################################
 class Model(pl.LightningModule):
@@ -224,9 +226,10 @@ class Model(pl.LightningModule):
         super(Model, self).__init__()
         self.hparams = hparams
         # self.example_input_array = torch.rand(self.hparams.batch_size,  1, 256, 256),  \
-        #                          torch.rand(self.hparams.batch_size, 64, 256, 256),  \
+        #                            torch.rand(self.hparams.batch_size, 64, 256, 256),  \
         #                            torch.rand(self.hparams.batch_size,  1, 256, 256),  \
         #                            torch.rand(self.hparams.batch_size, 64, 256, 256)
+
         self.save_hyperparameters()
         self.hparams = hparams
         self.hparams.latent = 512
@@ -236,10 +239,11 @@ class Model(pl.LightningModule):
 
         self.mean_path_length = 0
         self.accum = 0.5 ** (32 / (10 * 1000))
-        self.register_buffer('sample_z', torch.randn(self.hparams.n_sample, self.hparams.latent))
-        
-    def forward(self, z):
-        return self.generator(z)
+        # self.register_buffer('sample_z', torch.randn(self.hparams.batch_size, self.hparams.latent))
+        # self.example_input_array = torch.rand_like(self.sample_z)
+
+    def forward(self, x):
+        return self.generator(x)
 
     def configure_optimizers(self):
         # optimizer = torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
@@ -252,15 +256,15 @@ class Model(pl.LightningModule):
         return d_optim, g_optim
 
     def init_discriminator(self):
-        discriminator = Discriminator(self.hparams.shape, channel_multiplier=self.hparams.channel_multiplier)
+        discriminator = PDNet(self.hparams) #Discriminator(self.hparams.shape, channel_multiplier=self.hparams.channel_multiplier)
         return discriminator
 
-    def discriminator_loss(self, real_img):
+    def discriminator_loss(self, real_img, fake_img):
         requires_grad(self.generator, False)
         requires_grad(self.discriminator, True)
 
-        noise = mixing_noise(self.hparams.batch_size, self.hparams.latent, self.hparams.mixing, self.device)
-        fake_img, _ = self.generator(noise)
+        # noise = mixing_noise(self.hparams.batch_size, self.hparams.latent, self.hparams.mixing, self.device)
+        # fake_img = self.generator(noise)
         fake_pred = self.discriminator(fake_img)
         real_pred = self.discriminator(real_img)
         d_loss = d_logistic_loss(real_pred, fake_pred)
@@ -270,23 +274,23 @@ class Model(pl.LightningModule):
 
         return d_loss, real_score, fake_score
 
-    def discriminator_regularization_loss(self, real_img):
-        real_img.requires_grad = True
-        real_pred = self.discriminator(real_img)
-        r1_loss = d_r1_loss(real_pred, real_img)
-        d_reg_loss = (self.hparams.r1 / 2 * r1_loss * self.hparams.d_reg_every + 0 * real_pred[0]).mean()
-        return d_reg_loss, r1_loss
+    # def discriminator_regularization_loss(self, real_img):
+    #     real_img.requires_grad = True
+    #     real_pred = self.discriminator(real_img)
+    #     r1_loss = d_r1_loss(real_pred, real_img)
+    #     d_reg_loss = (self.hparams.r1 / 2 * r1_loss * self.hparams.d_reg_every + 0 * real_pred[0]).mean()
+    #     return d_reg_loss, r1_loss
 
-    def discriminator_step(self, real_img, regularize=False):
-        d_loss, real_score, fake_score = self.discriminator_loss(real_img)
+    def discriminator_step(self, real_img, fake_img, regularize=False):
+        d_loss, real_score, fake_score = self.discriminator_loss(real_img, fake_img)
 
         tqdm_dict = {'d_loss': d_loss}
         log_dict = {'d_loss': d_loss, 'real_score': real_score, 'fake_score': fake_score}
 
-        if regularize:
-            d_reg_loss, r1_loss = self.discriminator_regularization_loss(real_img)
-            d_loss += d_reg_loss
-            log_dict.update({'r1': r1_loss})
+        # if regularize:
+        #     d_reg_loss, r1_loss = self.discriminator_regularization_loss(real_img)
+        #     d_loss += d_reg_loss
+        #     log_dict.update({'r1': r1_loss})
 
         output = {
             'loss': d_loss,
@@ -296,51 +300,48 @@ class Model(pl.LightningModule):
         return output
 
     def init_generator(self):
-        generator = Generator(self.hparams.shape, self.hparams.latent, self.hparams.n_mlp, channel_multiplier=self.hparams.channel_multiplier)
-        g_ema = Generator(self.hparams.shape, self.hparams.latent, self.hparams.n_mlp, channel_multiplier=self.hparams.channel_multiplier)
+        # generator = Generator(self.hparams.shape, self.hparams.latent, self.hparams.n_mlp, channel_multiplier=self.hparams.channel_multiplier)
+        # g_ema = Generator(self.hparams.shape, self.hparams.latent, self.hparams.n_mlp, channel_multiplier=self.hparams.channel_multiplier)
+        generator = PGNet(self.hparams)
+        g_ema = PGNet(self.hparams)
         g_ema.eval()
         accumulate(g_ema, generator, 0)
         return generator, g_ema
 
-    def generator_loss(self):
+    def generator_loss(self, input):
         requires_grad(self.generator, True)
         requires_grad(self.discriminator, False)
 
-        noise = mixing_noise(self.hparams.batch_size, self.hparams.latent, self.hparams.mixing, self.device)
-        fake_img, _ = self.generator(noise)
+        # noise = mixing_noise(self.hparams.batch_size, self.hparams.latent, self.hparams.mixing, self.device)
+        fake_img = self.generator(input)
 
         fake_pred = self.discriminator(fake_img)
         g_loss = g_nonsaturating_loss(fake_pred)
         return g_loss
 
-    def generator_regularization_loss(self):
-        path_batch_size = max(1, self.hparams.batch_size // self.hparams.path_batch_shrink)
-        noise = mixing_noise(path_batch_size, self.hparams.latent, self.hparams.mixing, self.device)
-        fake_img, latents = self.generator(noise, return_latents=True)
+    # def generator_regularization_loss(self):
+    #     path_batch_size = max(1, self.hparams.batch_size // self.hparams.path_batch_shrink)
+    #     noise = mixing_noise(path_batch_size, self.hparams.latent, self.hparams.mixing, self.device)
+    #     fake_img, latents = self.generator(noise, return_latents=True)
 
-        path_loss, self.mean_path_length, path_lengths = g_path_regularize(
-            fake_img, latents, self.mean_path_length
-        )
-        # generator.zero_grad()
-        weighted_path_loss = self.hparams.path_regularize * self.hparams.g_reg_every * path_loss
+    #     path_loss, self.mean_path_length, path_lengths = g_path_regularize(fake_img, latents, self.mean_path_length)
+    #     weighted_path_loss = self.hparams.path_regularize * self.hparams.g_reg_every * path_loss
 
-        if self.hparams.path_batch_shrink:
-            weighted_path_loss += 0 * fake_img[0, 0, 0, 0]
+    #     if self.hparams.path_batch_shrink:
+    #         weighted_path_loss += 0 * fake_img[0, 0, 0, 0]
 
-        return weighted_path_loss, path_loss, path_lengths
+    #     return weighted_path_loss, path_loss, path_lengths
 
-    def generator_step(self, regularize=False):
-        g_loss = self.generator_loss()
+    def generator_step(self, input, regularize=False):
+        g_loss = self.generator_loss(input)
         tqdm_dict = {'g_loss': g_loss}
         log_dict = {'g_loss': g_loss}
 
-        if regularize:
-            weighted_path_loss, path_loss, path_lengths = self.generator_regularization_loss()
-            # weighted_path_loss.backward()
-            # g_optim.step()
-            g_loss += weighted_path_loss
-            log_dict["path"] = path_loss
-            log_dict["path_length"] = path_lengths.mean()
+        # if regularize:
+        #     weighted_path_loss, path_loss, path_lengths = self.generator_regularization_loss()
+        #     g_loss += weighted_path_loss
+        #     log_dict["path"] = path_loss
+        #     log_dict["path_length"] = path_lengths.mean()
 
         output = {
             'loss': g_loss,
@@ -350,45 +351,76 @@ class Model(pl.LightningModule):
         return output
 
     def training_step(self, batch, batch_idx, optimizer_idx):
-        d_regularize = (batch_idx % self.hparams.d_reg_every == 0)
-        g_regularize = (batch_idx % self.hparams.g_reg_every == 0)
-        pair_img, _, real_img, _ = batch
+        # d_regularize = (batch_idx % self.hparams.d_reg_every == 0)
+        # g_regularize = (batch_idx % self.hparams.g_reg_every == 0)
+        # pair_img, _, real_img, _ = batch
+        pxr2, pct3, uxr2, uct3 = batch
+        pxr2, pct3, uxr2, uct3 = pxr2/128-1, pct3/128-1, uxr2/128-1, uct3/128-1
+        # pair_img = pair_img / 128.0 - 1.0
+        # real_img = real_img / 128.0 - 1.0
 
-        pair_img = pair_img / 255.0
-        real_img = real_img / 255.0
+        # fxr2 = self.generator(uct3)
+        # exr2 = self.generator(pct3)
 
         result = None
-        if optimizer_idx == 0:
-            result = self.discriminator_step(real_img, regularize=d_regularize)
+        if optimizer_idx == 0: # Discriminator
+            # d_loss, real_score, fake_score = self.discriminator_loss(real_img)
+            requires_grad(self.generator, False)
+            requires_grad(self.discriminator, True)
 
-        if optimizer_idx == 1:
-            result = self.generator_step(regularize=g_regularize)
+            # noise = mixing_noise(self.hparams.batch_size, self.hparams.latent, self.hparams.mixing, self.device)
+            fxr2 = self.generator(uct3)
+            fake_pred = self.discriminator(fxr2)
+            real_pred = self.discriminator(uxr2)
+            d_loss = d_logistic_loss(real_pred, fake_pred)
+
+            real_score = real_pred.mean()
+            fake_score = fake_pred.mean()
+
+            tqdm_dict = {'d_loss': d_loss}
+            log_dict = {'d_loss': d_loss, 'real_score': real_score, 'fake_score': fake_score}
+
+            output = {
+                'loss': d_loss,
+                'progress_bar': tqdm_dict,
+                'log': log_dict,
+            }
+
+        if optimizer_idx == 1: #Generator
+            requires_grad(self.generator, True)
+            requires_grad(self.discriminator, False)
+
+            fxr2 = self.generator(uct3)
+            exr2 = self.generator(pct3)
+
+            fake_pred = self.discriminator(fxr2)
+            c_loss = nn.L1Loss()(pxr2, exr2)
+            g_loss = g_nonsaturating_loss(fake_pred) + c_loss
+
+            tqdm_dict = {'g_loss': g_loss, 'c_loss': c_loss}
+            log_dict = {'g_loss': g_loss, 'c_loss': c_loss}
+
+            output = {
+                'loss': g_loss,
+                'progress_bar': tqdm_dict,
+                'log': log_dict,
+            }
             accumulate(self.g_ema, self.generator, self.accum)
 
         if batch_idx % self.hparams.img_log_frequency == 0:
-            # self.log_sample_image()
             self.g_ema.eval()
-            fake_img, _ = self.g_ema([self.sample_z])
-            grid = torchvision.utils.make_grid(fake_img, 8, normalize=True, range=(0, 1))
-            self.logger.experiment.add_image('fake_img', grid, self.current_epoch)
-            grid = torchvision.utils.make_grid(real_img, 8, normalize=True, range=(0, 1))
-            self.logger.experiment.add_image('real_img', grid, self.current_epoch)
-            grid = torchvision.utils.make_grid(pair_img, 8, normalize=True, range=(0, 1))
-            self.logger.experiment.add_image('pair_img', grid, self.current_epoch)
-        return result
+            fake_img = self.g_ema(uct3)
+            real_img = uxr2
+            pair_img = pxr2
 
-    # @torch.no_grad()
-    # def log_sample_image(self):
-    #     self.g_ema.eval()
-    #     sample, _ = self.g_ema([self.sample_z])
-    #     # self.logger.experiment.add_graph(self.g_ema(styles=None, input_is_latent=True), torch.rand_like(self.sample_z))
-    #     grid = torchvision.utils.make_grid(
-    #         sample,
-    #         nrow=int(self.hparams.n_sample ** 0.5),
-    #         normalize=True,
-    #         range=(-1, 1),
-    #     )
-    #     self.logger.experiment.add_image('generated', grid, self.current_epoch)
+            grid = torchvision.utils.make_grid(fake_img, 8, normalize=True, range=(-1, 1))
+            self.logger.experiment.add_image('fake_img', grid, self.current_epoch)
+            grid = torchvision.utils.make_grid(real_img, 8, normalize=True, range=(-1, 1))
+            self.logger.experiment.add_image('real_img', grid, self.current_epoch)
+            grid = torchvision.utils.make_grid(pair_img, 8, normalize=True, range=(-1, 1))
+            self.logger.experiment.add_image('pair_img', grid, self.current_epoch)
+        return output
+
 
     def __dataloader(self):
         # train_tfm = None
@@ -508,7 +540,7 @@ if __name__ == '__main__':
     parser.add_argument("--epochs", type=int, default=500, help="number of epochs to train")
     parser.add_argument("--log_wandb", action='store_true', help="log training on Weights & Biases")
     #
-    parser.add_argument("--batch_size", type=int, default=16)
+    parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--n_sample", type=int, default=16)
     parser.add_argument("--shape", type=int, default=256)
     parser.add_argument("--size", type=int, default=1024)

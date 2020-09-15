@@ -120,22 +120,23 @@ class CustomNativeDataset(Dataset):
     def __getitem__(self, idx):
         pidx = torch.randint(len(self.imagepairedfiles), (1, 1))
         imagepaired = skimage.io.imread(self.imagepairedfiles[pidx])
-        labelpaired = skimage.io.imread(self.labelpairedfiles[pidx])
+        # labelpaired = skimage.io.imread(self.labelpairedfiles[pidx])
 
         aidx = torch.randint(len(self.imageunpairedfiles), (1, 1))
         bidx = torch.randint(len(self.labelunpairedfiles), (1, 1))
         imageunpaired = skimage.io.imread(self.imageunpairedfiles[aidx])
-        labelunpaired = skimage.io.imread(self.labelunpairedfiles[bidx])
+        # labelunpaired = skimage.io.imread(self.labelunpairedfiles[bidx])
 
         if self.transforms is not None:
             untransformed = self.transforms(image=np.transpose(np.expand_dims(imageunpaired, 0), (1, 2, 0)))
             imageunpaired = np.squeeze(np.transpose(untransformed['image'], (2, 0, 1)), 0)
-            untransformed = self.transforms(image=np.transpose(labelunpaired, (1, 2, 0)))
-            labelunpaired = np.transpose(untransformed['image'], (2, 0, 1))
+            # untransformed = self.transforms(image=np.transpose(labelunpaired, (1, 2, 0)))
+            # labelunpaired = np.transpose(untransformed['image'], (2, 0, 1))
 
-        scale = [64.0 / labelpaired.shape[0], 
-                 256.0/labelpaired.shape[1], 
-                 256.0/labelpaired.shape[2]]
+        # scale = [64.0 / labelpaired.shape[0], 
+        #          256.0/labelpaired.shape[1], 
+        #          256.0/labelpaired.shape[2]]
+        scale = [1, 1, 1]
 
         def bbox2(img):
             rows = np.any(img, axis=1)
@@ -147,14 +148,14 @@ class CustomNativeDataset(Dataset):
         imagepaired = bbox2(imagepaired)                   
         imageunpaired = bbox2(imageunpaired)                   
         imagepaired = cv2.resize(imagepaired, (256, 256))
-        labelpaired = scipy.ndimage.zoom(labelpaired, scale, order=3)
+        # labelpaired = scipy.ndimage.zoom(labelpaired, scale, order=3)
         imageunpaired = cv2.resize(imageunpaired, (256, 256))
-        labelunpaired = scipy.ndimage.zoom(labelunpaired, scale, order=3)
+        # labelunpaired = scipy.ndimage.zoom(labelunpaired, scale, order=3)
 
+        # return torch.Tensor(imagepaired).float().unsqueeze_(0),   \
+        #        torch.Tensor(labelpaired).float(),                 \
         return torch.Tensor(imagepaired).float().unsqueeze_(0),   \
-               torch.Tensor(labelpaired).float(),                 \
-               torch.Tensor(imageunpaired).float().unsqueeze_(0), \
-               torch.Tensor(labelunpaired).float(),
+               torch.Tensor(imageunpaired).float().unsqueeze_(0),   
 ########################################################################################################
 def requires_grad(model, flag=True):
     for p in model.parameters():
@@ -349,7 +350,7 @@ class Model(pl.LightningModule):
     def training_step(self, batch, batch_idx, optimizer_idx):
         d_regularize = (batch_idx % self.hparams.d_reg_every == 0)
         g_regularize = (batch_idx % self.hparams.g_reg_every == 0)
-        pair_img, _, real_img, _ = batch
+        pair_img, real_img = batch
 
         pair_img = pair_img / 128.0 - 1.0
         real_img = real_img / 128.0 - 1.0
@@ -483,7 +484,7 @@ if __name__ == '__main__':
                         help='supports three options dp, ddp, ddp2')
     parser.add_argument('--use_amp', default=False, action='store_true', help='if true uses 16 bit precision')
     parser.add_argument("--num_workers", type=int, default=8, help="size of the workers")
-    parser.add_argument("--lr", type=float, default=0.0002, help="learning rate")
+    parser.add_argument("--lr", type=float, default=0.002, help="learning rate")
     parser.add_argument("--nb_layer", type=int, default=5, help="number of layers on u-net")
     parser.add_argument("--features", type=int, default=8, help="number of features in single layer")
     parser.add_argument("--bilinear", action='store_true', default=False,
