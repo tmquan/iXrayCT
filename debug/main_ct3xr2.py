@@ -226,7 +226,8 @@ class Model(pl.LightningModule):
         #                            torch.rand(self.hparams.batch_size, 64, 256, 256),  \
         #                            torch.rand(self.hparams.batch_size,  1, 256, 256),  \
         #                            torch.rand(self.hparams.batch_size, 64, 256, 256)
-
+        self.example_input_array = torch.rand(self.hparams.batch_size, 64, 256, 256)
+        
         self.save_hyperparameters()
         self.hparams = hparams
         self.hparams.latent = 512
@@ -402,8 +403,9 @@ class Model(pl.LightningModule):
             # print('noise.shape', noise.shape)
             # fake_img, _ = self.generator(noise)
             fake_img, _ = self.generator(uct3)
+            exr2    , _ = self.generator(pct3)
             fake_pred = self.discriminator(fake_img)
-            g_loss = g_nonsaturating_loss(fake_pred)
+            g_loss = g_nonsaturating_loss(fake_pred) + nn.L1Loss()(pxr2, exr2)
 
             tqdm_dict = {'g_loss': g_loss}
             log_dict = {'g_loss': g_loss}
