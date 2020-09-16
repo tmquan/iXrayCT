@@ -1,3 +1,4 @@
+
 import os
 import glob
 from argparse import ArgumentParser
@@ -30,7 +31,7 @@ warnings.filterwarnings('ignore', '.*output shape of zoom.*')
 
 # from model import INet
 # from model import PNet
-from model import Generator, Discriminator, PGNet #, Generator, Discriminator
+from model import Generator, Discriminator
 
 train_image_paired_dir = ['/u01/data/iXrayCT_COVID/data_resized/train/paired/RADIOPAEDIA/pos/xr2/',
                           '/u01/data/iXrayCT_COVID/data_resized/train/paired/RADIOPAEDIA/neg/xr2/',
@@ -119,22 +120,23 @@ class CustomNativeDataset(Dataset):
     def __getitem__(self, idx):
         pidx = torch.randint(len(self.imagepairedfiles), (1, 1))
         imagepaired = skimage.io.imread(self.imagepairedfiles[pidx])
-        labelpaired = skimage.io.imread(self.labelpairedfiles[pidx])
+        # labelpaired = skimage.io.imread(self.labelpairedfiles[pidx])
 
         aidx = torch.randint(len(self.imageunpairedfiles), (1, 1))
         bidx = torch.randint(len(self.labelunpairedfiles), (1, 1))
         imageunpaired = skimage.io.imread(self.imageunpairedfiles[aidx])
-        labelunpaired = skimage.io.imread(self.labelunpairedfiles[bidx])
+        # labelunpaired = skimage.io.imread(self.labelunpairedfiles[bidx])
 
         if self.transforms is not None:
             untransformed = self.transforms(image=np.transpose(np.expand_dims(imageunpaired, 0), (1, 2, 0)))
             imageunpaired = np.squeeze(np.transpose(untransformed['image'], (2, 0, 1)), 0)
-            untransformed = self.transforms(image=np.transpose(labelunpaired, (1, 2, 0)))
-            labelunpaired = np.transpose(untransformed['image'], (2, 0, 1))
+            # untransformed = self.transforms(image=np.transpose(labelunpaired, (1, 2, 0)))
+            # labelunpaired = np.transpose(untransformed['image'], (2, 0, 1))
 
-        scale = [64.0 / labelpaired.shape[0], 
-                 256.0/labelpaired.shape[1], 
-                 256.0/labelpaired.shape[2]]
+        # scale = [64.0 / labelpaired.shape[0], 
+        #          256.0/labelpaired.shape[1], 
+        #          256.0/labelpaired.shape[2]]
+        scale = [1, 1, 1]
 
         def bbox2(img):
             rows = np.any(img, axis=1)
@@ -146,14 +148,14 @@ class CustomNativeDataset(Dataset):
         imagepaired = bbox2(imagepaired)                   
         imageunpaired = bbox2(imageunpaired)                   
         imagepaired = cv2.resize(imagepaired, (256, 256))
-        labelpaired = scipy.ndimage.zoom(labelpaired, scale, order=3)
+        # labelpaired = scipy.ndimage.zoom(labelpaired, scale, order=3)
         imageunpaired = cv2.resize(imageunpaired, (256, 256))
-        labelunpaired = scipy.ndimage.zoom(labelunpaired, scale, order=3)
+        # labelunpaired = scipy.ndimage.zoom(labelunpaired, scale, order=3)
 
+        # return torch.Tensor(imagepaired).float().unsqueeze_(0),   \
+        #        torch.Tensor(labelpaired).float(),                 \
         return torch.Tensor(imagepaired).float().unsqueeze_(0),   \
-               torch.Tensor(labelpaired).float(),                 \
-               torch.Tensor(imageunpaired).float().unsqueeze_(0), \
-               torch.Tensor(labelunpaired).float(),  
+               torch.Tensor(imageunpaired).float().unsqueeze_(0),   
 ########################################################################################################
 def requires_grad(model, flag=True):
     for p in model.parameters():
@@ -256,191 +258,121 @@ class Model(pl.LightningModule):
         discriminator = Discriminator(self.hparams.shape, channel_multiplier=self.hparams.channel_multiplier)
         return discriminator
 
-    # def discriminator_loss(self, real_img):
-    #     requires_grad(self.generator, False)
-    #     requires_grad(self.discriminator, True)
+    def discriminator_loss(self, real_img):
+        requires_grad(self.generator, False)
+        requires_grad(self.discriminator, True)
 
-    #     noise = mixing_noise(self.hparams.batch_size, self.hparams.latent, self.hparams.mixing, self.device)
-    #     fake_img, _ = self.generator(noise)
-    #     fake_pred = self.discriminator(fake_img)
-    #     real_pred = self.discriminator(real_img)
-    #     d_loss = d_logistic_loss(real_pred, fake_pred)
+        noise = mixing_noise(self.hparams.batch_size, self.hparams.latent, self.hparams.mixing, self.device)
+        fake_img, _ = self.generator(noise)
+        fake_pred = self.discriminator(fake_img)
+        real_pred = self.discriminator(real_img)
+        d_loss = d_logistic_loss(real_pred, fake_pred)
 
-    #     real_score = real_pred.mean()
-    #     fake_score = fake_pred.mean()
+        real_score = real_pred.mean()
+        fake_score = fake_pred.mean()
 
-    #     return d_loss, real_score, fake_score
+        return d_loss, real_score, fake_score
 
-    # def discriminator_regularization_loss(self, real_img):
-    #     real_img.requires_grad = True
-    #     real_pred = self.discriminator(real_img)
-    #     r1_loss = d_r1_loss(real_pred, real_img)
-    #     d_reg_loss = (self.hparams.r1 / 2 * r1_loss * self.hparams.d_reg_every + 0 * real_pred[0]).mean()
-    #     return d_reg_loss, r1_loss
+    def discriminator_regularization_loss(self, real_img):
+        real_img.requires_grad = True
+        real_pred = self.discriminator(real_img)
+        r1_loss = d_r1_loss(real_pred, real_img)
+        d_reg_loss = (self.hparams.r1 / 2 * r1_loss * self.hparams.d_reg_every + 0 * real_pred[0]).mean()
+        return d_reg_loss, r1_loss
 
-    # def discriminator_step(self, real_img, regularize=False):
-    #     d_loss, real_score, fake_score = self.discriminator_loss(real_img)
+    def discriminator_step(self, real_img, regularize=False):
+        d_loss, real_score, fake_score = self.discriminator_loss(real_img)
 
-    #     tqdm_dict = {'d_loss': d_loss}
-    #     log_dict = {'d_loss': d_loss, 'real_score': real_score, 'fake_score': fake_score}
+        tqdm_dict = {'d_loss': d_loss}
+        log_dict = {'d_loss': d_loss, 'real_score': real_score, 'fake_score': fake_score}
 
-    #     if regularize:
-    #         d_reg_loss, r1_loss = self.discriminator_regularization_loss(real_img)
-    #         d_loss += d_reg_loss
-    #         log_dict.update({'r1': r1_loss})
+        if regularize:
+            d_reg_loss, r1_loss = self.discriminator_regularization_loss(real_img)
+            d_loss += d_reg_loss
+            log_dict.update({'r1': r1_loss})
 
-    #     output = {
-    #         'loss': d_loss,
-    #         'progress_bar': tqdm_dict,
-    #         'log': log_dict,
-    #     }
-    #     return output
+        output = {
+            'loss': d_loss,
+            'progress_bar': tqdm_dict,
+            'log': log_dict,
+        }
+        return output
 
     def init_generator(self):
-        # generator = Generator(self.hparams.shape, self.hparams.latent, self.hparams.n_mlp, channel_multiplier=self.hparams.channel_multiplier)
-        # g_ema = Generator(self.hparams.shape, self.hparams.latent, self.hparams.n_mlp, channel_multiplier=self.hparams.channel_multiplier)
-        generator = PGNet(self.hparams)
-        g_ema = PGNet(self.hparams)
+        generator = Generator(self.hparams.shape, self.hparams.latent, self.hparams.n_mlp, channel_multiplier=self.hparams.channel_multiplier)
+        g_ema = Generator(self.hparams.shape, self.hparams.latent, self.hparams.n_mlp, channel_multiplier=self.hparams.channel_multiplier)
         g_ema.eval()
         accumulate(g_ema, generator, 0)
         return generator, g_ema
 
-    # def generator_loss(self):
-    #     requires_grad(self.generator, True)
-    #     requires_grad(self.discriminator, False)
+    def generator_loss(self):
+        requires_grad(self.generator, True)
+        requires_grad(self.discriminator, False)
 
-    #     noise = mixing_noise(self.hparams.batch_size, self.hparams.latent, self.hparams.mixing, self.device)
-    #     fake_img, _ = self.generator(noise)
+        noise = mixing_noise(self.hparams.batch_size, self.hparams.latent, self.hparams.mixing, self.device)
+        fake_img, _ = self.generator(noise)
 
-    #     fake_pred = self.discriminator(fake_img)
-    #     g_loss = g_nonsaturating_loss(fake_pred)
-    #     return g_loss
+        fake_pred = self.discriminator(fake_img)
+        g_loss = g_nonsaturating_loss(fake_pred)
+        return g_loss
 
-    # def generator_regularization_loss(self):
-    #     path_batch_size = max(1, self.hparams.batch_size // self.hparams.path_batch_shrink)
-    #     noise = mixing_noise(path_batch_size, self.hparams.latent, self.hparams.mixing, self.device)
-    #     fake_img, latents = self.generator(noise, return_latents=True)
+    def generator_regularization_loss(self):
+        path_batch_size = max(1, self.hparams.batch_size // self.hparams.path_batch_shrink)
+        noise = mixing_noise(path_batch_size, self.hparams.latent, self.hparams.mixing, self.device)
+        fake_img, latents = self.generator(noise, return_latents=True)
 
-    #     path_loss, self.mean_path_length, path_lengths = g_path_regularize(fake_img, latents, self.mean_path_length)
-    #     weighted_path_loss = self.hparams.path_regularize * self.hparams.g_reg_every * path_loss
+        path_loss, self.mean_path_length, path_lengths = g_path_regularize(fake_img, latents, self.mean_path_length)
+        weighted_path_loss = self.hparams.path_regularize * self.hparams.g_reg_every * path_loss
 
-    #     if self.hparams.path_batch_shrink:
-    #         weighted_path_loss += 0 * fake_img[0, 0, 0, 0]
+        if self.hparams.path_batch_shrink:
+            weighted_path_loss += 0 * fake_img[0, 0, 0, 0]
 
-    #     return weighted_path_loss, path_loss, path_lengths
+        return weighted_path_loss, path_loss, path_lengths
 
-    # def generator_step(self, regularize=False):
-    #     g_loss = self.generator_loss()
-    #     tqdm_dict = {'g_loss': g_loss}
-    #     log_dict = {'g_loss': g_loss}
+    def generator_step(self, regularize=False):
+        g_loss = self.generator_loss()
+        tqdm_dict = {'g_loss': g_loss}
+        log_dict = {'g_loss': g_loss}
 
-    #     if regularize:
-    #         weighted_path_loss, path_loss, path_lengths = self.generator_regularization_loss()
-    #         g_loss += weighted_path_loss
-    #         log_dict["path"] = path_loss
-    #         log_dict["path_length"] = path_lengths.mean()
+        if regularize:
+            weighted_path_loss, path_loss, path_lengths = self.generator_regularization_loss()
+            g_loss += weighted_path_loss
+            log_dict["path"] = path_loss
+            log_dict["path_length"] = path_lengths.mean()
 
-    #     output = {
-    #         'loss': g_loss,
-    #         'progress_bar': tqdm_dict,
-    #         'log': log_dict,
-    #     }
-    #     return output
+        output = {
+            'loss': g_loss,
+            'progress_bar': tqdm_dict,
+            'log': log_dict,
+        }
+        return output
 
     def training_step(self, batch, batch_idx, optimizer_idx):
         d_regularize = (batch_idx % self.hparams.d_reg_every == 0)
         g_regularize = (batch_idx % self.hparams.g_reg_every == 0)
-        pxr2, pct3, uxr2, uct3 = batch
-        pxr2, pct3, uxr2, uct3 = pxr2/128-1, pct3/128-1, uxr2/128-1, uct3/128-1
-        real_img = uxr2
-        pair_img = pxr2
+        pair_img, real_img = batch
+
+        pair_img = pair_img / 128.0 - 1.0
+        real_img = real_img / 128.0 - 1.0
 
         result = None
-        if optimizer_idx == 0: # Discriminator
-            # result = self.discriminator_step(real_img, regularize=d_regularize)
-            # d_loss, real_score, fake_score = self.discriminator_loss(real_img)
-            requires_grad(self.generator, False)
-            requires_grad(self.discriminator, True)
+        if optimizer_idx == 0:
+            result = self.discriminator_step(real_img, regularize=d_regularize)
 
-            # noise = mixing_noise(self.hparams.batch_size, self.hparams.latent, self.hparams.mixing, self.device)
-            # print('noise', noise)
-            # fake_img, _ = self.generator(noise)
-            fake_img, _ = self.generator(uct3)
-            fake_pred = self.discriminator(fake_img)
-            real_pred = self.discriminator(real_img)
-            d_loss = d_logistic_loss(real_pred, fake_pred)
-
-            real_score = real_pred.mean()
-            fake_score = fake_pred.mean()
-
-            tqdm_dict = {'d_loss': d_loss}
-            log_dict = {'d_loss': d_loss, 'real_score': real_score, 'fake_score': fake_score}
-
-            if d_regularize:
-                # d_reg_loss, r1_loss = self.discriminator_regularization_loss(real_img)
-                real_img.requires_grad = True
-                real_pred = self.discriminator(real_img)
-                r1_loss = d_r1_loss(real_pred, real_img)
-                d_reg_loss = (self.hparams.r1 / 2 * r1_loss * self.hparams.d_reg_every + 0 * real_pred[0]).mean()
-
-                d_loss += d_reg_loss
-                log_dict.update({'r1': r1_loss})
-
-            output = {
-                'loss': d_loss,
-                'progress_bar': tqdm_dict,
-                'log': log_dict,
-            }
-
-        if optimizer_idx == 1: # Generator
-            # result = self.generator_step(regularize=g_regularize)
-            # g_loss = self.generator_loss()
-            requires_grad(self.generator, True)
-            requires_grad(self.discriminator, False)
-
-            # noise = mixing_noise(self.hparams.batch_size, self.hparams.latent, self.hparams.mixing, self.device)
-            # print('noise.shape', noise.shape)
-            # fake_img, _ = self.generator(noise)
-            fake_img, _ = self.generator(uct3)
-            fake_pred = self.discriminator(fake_img)
-            g_loss = g_nonsaturating_loss(fake_pred)
-
-            tqdm_dict = {'g_loss': g_loss}
-            log_dict = {'g_loss': g_loss}
-
-            if g_regularize:
-                # weighted_path_loss, path_loss, path_lengths = self.generator_regularization_loss()
-                path_batch_size = max(1, self.hparams.batch_size // self.hparams.path_batch_shrink)
-                # noise = mixing_noise(path_batch_size, self.hparams.latent, self.hparams.mixing, self.device)
-                # fake_img, latents = self.generator(noise, return_latents=True)
-                fake_img, latents = self.generator(uct3)
-
-                path_loss, self.mean_path_length, path_lengths = g_path_regularize(fake_img, latents, self.mean_path_length)
-                weighted_path_loss = self.hparams.path_regularize * self.hparams.g_reg_every * path_loss
-
-                if self.hparams.path_batch_shrink:
-                    weighted_path_loss += 0 * fake_img[0, 0, 0, 0]
-                g_loss += weighted_path_loss
-                log_dict["path"] = path_loss
-                log_dict["path_length"] = path_lengths.mean()
-
-            output = {
-                'loss': g_loss,
-                'progress_bar': tqdm_dict,
-                'log': log_dict,
-            }
+        if optimizer_idx == 1:
+            result = self.generator_step(regularize=g_regularize)
             accumulate(self.g_ema, self.generator, self.accum)
 
         if batch_idx % self.hparams.img_log_frequency == 0:
             self.g_ema.eval()
-            fake_img, _ = self.g_ema(uct3)
+            fake_img, _ = self.g_ema([self.sample_z])
             grid = torchvision.utils.make_grid(fake_img, 8, normalize=True, range=(-1, 1))
             self.logger.experiment.add_image('fake_img', grid, self.current_epoch)
             grid = torchvision.utils.make_grid(real_img, 8, normalize=True, range=(-1, 1))
             self.logger.experiment.add_image('real_img', grid, self.current_epoch)
             grid = torchvision.utils.make_grid(pair_img, 8, normalize=True, range=(-1, 1))
             self.logger.experiment.add_image('pair_img', grid, self.current_epoch)
-        return output
+        return result
 
 
     def __dataloader(self):
@@ -561,8 +493,8 @@ if __name__ == '__main__':
     parser.add_argument("--epochs", type=int, default=500, help="number of epochs to train")
     parser.add_argument("--log_wandb", action='store_true', help="log training on Weights & Biases")
     #
-    parser.add_argument("--batch_size", type=int, default=4)
-    parser.add_argument("--n_sample", type=int, default=4)
+    parser.add_argument("--batch_size", type=int, default=16)
+    parser.add_argument("--n_sample", type=int, default=16)
     parser.add_argument("--shape", type=int, default=256)
     parser.add_argument("--size", type=int, default=1024)
     parser.add_argument("--r1", type=float, default=10)
