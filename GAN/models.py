@@ -8,50 +8,6 @@ from torch import nn
 from torch.nn import functional as F
 from torch.autograd import Function
 
-import numpy as np
-
-def requires_grad(model, flag=True):
-    for p in model.parameters():
-        p.requires_grad = flag
-
-
-def accumulate(model1, model2, decay=0.999):
-    par1 = dict(model1.named_parameters())
-    par2 = dict(model2.named_parameters())
-
-    for k in par1.keys():
-        par1[k].data.mul_(decay).add_(par2[k].data, alpha=1 - decay)
-
-
-def sample_data(loader):
-    while True:
-        for batch in loader:
-            yield batch
-
-def d_logistic_loss(real_pred, fake_pred):
-    real_loss = F.softplus(-real_pred)
-    fake_loss = F.softplus(fake_pred)
-    return real_loss.mean() + fake_loss.mean()
-
-
-def d_r1_loss(real_pred, real_img):
-    grad_real, = torch.autograd.grad(outputs=real_pred.sum(), inputs=real_img, create_graph=True)
-    grad_penalty = grad_real.pow(2).reshape(grad_real.shape[0], -1).sum(1).mean()
-    return grad_penalty
-
-
-def g_nonsaturating_loss(fake_pred):
-    loss = F.softplus(-fake_pred).mean()
-    return loss
-
-def g_path_regularize(fake_img, real_inp, mean_path_length, decay=0.01):
-    noise = torch.randn_like(fake_img) / np.sqrt(fake_img.shape[2] * fake_img.shape[3])
-    grad, = torch.autograd.grad(outputs=(fake_img * noise).sum(), inputs=real_inp, create_graph=True, allow_unused=True)
-    path_lengths = torch.sqrt(grad.pow(2).sum(2).mean(1))
-
-    path_mean = mean_path_length + decay * (path_lengths.mean() - mean_path_length)
-    path_penalty = (path_lengths - path_mean).pow(2).mean()
-    return path_penalty, path_mean.detach(), path_lengths
 
 class Reshape(nn.Module):
     def __init__(self, *args):
@@ -274,13 +230,11 @@ class Skip3d(nn.Sequential):
                                 stride=stride,
                                 padding=padding,
                                 bias=bias) 
-        # self.dropout = nn.Dropout()
 
     def forward(self, x):
         shape = x.shape
         y = self.conv2d(x)
         z = y.view([shape[0], shape[1], -1, shape[2], shape[3]]).transpose(2, 3) 
-        # w = self.dropout(z)
         return z
 
 
@@ -304,13 +258,11 @@ class Skip2d(nn.Sequential):
                                 bias=bias) 
         self.is_injecting = is_injecting
         self.injectnoises = InjectNoises(self.is_injecting)
-        # self.dropout = nn.Dropout()
     def forward(self, x):
         y = x.transpose(2, 3)
         shape = y.shape
         z = y.reshape([shape[0], shape[1]*shape[2], shape[3], shape[4]]) 
         z = self.injectnoises(self.conv2d(z)) if self.is_injecting else self.conv2d(z)
-        # w = self.dropout(z)
         return z
 
 
@@ -403,7 +355,7 @@ class INet(nn.Module):
             nn.LeakyReLU(inplace=True),
             Squeeze(dim=1),
             nn.Conv2d(64, 64, kernel_size=1, stride=1, padding=0, bias=False),
-            # nn.Tanh(),
+            nn.Tanh(),
         )
 
     def forward(self, x):
@@ -473,8 +425,7 @@ class PNet(nn.Module):
             nn.LeakyReLU(inplace=True),
             nn.Linear(num_filters*num_factors[8], num_filters*num_factors[8]),
             nn.LeakyReLU(inplace=True),
-            # nn.Dropout(),
-            InjectNoises(is_injecting),
+
             nn.Linear(num_filters*num_factors[8], num_filters*num_factors[8]),
             nn.LeakyReLU(inplace=True),
             nn.Linear(num_filters*num_factors[8], num_filters*num_factors[8]),
@@ -494,6 +445,7 @@ class PNet(nn.Module):
             nn.GroupNorm(4, num_filters*num_factors[8]),
             nn.LeakyReLU(inplace=True)
         )
+        
         # 2D
         self.skip_0 = Skip2d(source_channels=num_filters*num_factors[0]*64, output_channels=num_filters*num_factors[0], is_injecting=self.is_injecting)
         self.skip_1 = Skip2d(source_channels=num_filters*num_factors[1]*32, output_channels=num_filters*num_factors[1], is_injecting=self.is_injecting)
@@ -526,7 +478,7 @@ class PNet(nn.Module):
             nn.GroupNorm(4, num_filters*1),
             nn.LeakyReLU(inplace=True),
             nn.Conv2d(num_filters*1, output_channels, kernel_size=1, stride=1, padding=0, bias=False),
-            # nn.Tanh(),
+            nn.Tanh(),
         )
 
     def forward(self, x):

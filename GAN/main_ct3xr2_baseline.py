@@ -42,19 +42,91 @@ class Model(pl.LightningModule):
         
         self.save_hyperparameters()
         self.hparams = hparams
-        
-    def forward(self, z):
-        pass
+        # networks
+        self.generator = self.init_generator()
+        self.discriminator = self.init_discriminator()
+
+    def forward(self, x):
+        return self.generator(x)
 
     def configure_optimizers(self):
-        pass
+        lr = self.hparams.lr
+        opt_g = torch.optim.Adam(self.generator.parameters(), lr=lr)
+        opt_d = torch.optim.Adam(self.discriminator.parameters(), lr=lr)
+        return [opt_g, opt_d], []
 
     def init_discriminator(self):
-        pass 
+        import torchvision.models as models
+        discriminator = models.resnet18(pretrained=True)
+        discriminator.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        discriminator.fc = nn.Linear(512, 1)
+        return discriminator 
 
     def init_generator(self):
-        pass
+        generator = PNet(is_injecting=True, num_filters=8)
+        return generator
 
+    
+    def discriminator_loss(self, x_real, i_fake):
+        # train discriminator on real
+        b = x_real.size(0)
+        y_real = torch.ones(b, 1, device=self.device)
+        y_fake = torch.zeros(b, 1, device=self.device)
+
+        # calculate real score
+        D_output = self.discriminator(x_real)
+        # D_real_loss = F.binary_cross_entropy(D_output, y_real)
+        D_real_loss = F.binary_cross_entropy_with_logits(D_output, y_real)
+        
+        # train discriminator on fake
+        x_fake = self(i_fake) # Replace the input
+
+        # calculate fake score
+        D_output = self.discriminator(x_fake)
+        # D_fake_loss = F.binary_cross_entropy(D_output, y_fake)
+        D_fake_loss = F.binary_cross_entropy_with_logits(D_output, y_fake)
+        
+        # gradient backprop & optimize ONLY D's parameters
+        D_loss = D_real_loss + D_fake_loss
+
+        return D_loss
+
+    def generator_loss(self, x_real, i_fake):
+        # sample noise
+        # z = torch.randn(x.shape[0], self.hparams.latent_dim, device=self.device)
+        b = x_real.size(0)
+        y = torch.ones(b, 1, device=self.device)
+
+        # generate images
+        x_fake = self(i_fake)
+        D_output = self.discriminator(x_fake)
+
+        # ground truth result (ie: all real)
+        # g_loss = F.binary_cross_entropy(D_output, y)
+        g_loss = F.binary_cross_entropy_with_logits(D_output, y)
+
+        return g_loss
+
+
+    def discriminator_step(self, x_real, i_fake):
+        d_loss = self.discriminator_loss(x_real, i_fake)
+
+        # log to prog bar on each step AND for the full epoch
+        result = pl.TrainResult(minimize=d_loss)
+        result.log('d_loss', d_loss, on_epoch=True, prog_bar=True)
+        return result
+
+
+    def generator_step(self, x_real, x_fake):
+        g_loss = self.generator_loss(x_real, x_fake)
+
+        # log to prog bar on each step AND for the full epoch
+        # use the generator loss for checkpointing
+        result = pl.TrainResult(minimize=g_loss, checkpoint_on=g_loss)
+        result.log('g_loss', g_loss, on_epoch=True, prog_bar=True)
+        return result
+
+    
     def training_step(self, batch, batch_idx, optimizer_idx):
         ct3xr2_ct3_unpaired,\
         ct3xr2_xr2_unpaired,\
@@ -73,7 +145,29 @@ class Model(pl.LightningModule):
         xr2covid2_img_paired,\
         xr2covid2_lbl_paired = [ item / 128.0 - 1.0 for item in batch]
 
-        pass
+        # train generator
+        result = None
+        if optimizer_idx == 0:
+            result = self.generator_step(ct3xr2_xr2_unpaired, ct3xr2_ct3_unpaired)
+
+        # train discriminator
+        if optimizer_idx == 1:
+            result = self.discriminator_step(ct3xr2_xr2_unpaired, ct3xr2_ct3_unpaired)
+
+        ct3xr2_xr2_fake = self.generator(ct3xr2_ct3_unpaired)
+        grid = torchvision.utils.make_grid(ct3xr2_xr2_fake, 8, normalize=True, range=(-1, 1))
+        self.logger.experiment.add_image('ct3xr2_xr2_fake', grid, self.current_epoch)
+        grid = torchvision.utils.make_grid(ct3xr2_xr2_unpaired, 8, normalize=True, range=(-1, 1))
+        self.logger.experiment.add_image('ct3xr2_xr2_unpaired', grid, self.current_epoch)
+        
+        ct3xr2_xr2_recon = self.generator(ct3xr2_ct3_paired)
+        grid = torchvision.utils.make_grid(ct3xr2_xr2_recon, 8, normalize=True, range=(-1, 1))
+        self.logger.experiment.add_image('ct3xr2_xr2_recon', grid, self.current_epoch)
+        grid = torchvision.utils.make_grid(ct3xr2_xr2_paired, 8, normalize=True, range=(-1, 1))
+        self.logger.experiment.add_image('ct3xr2_xr2_paired', grid, self.current_epoch)
+
+        return result
+
 
     def validation_step(self, batch, batch_idx):
         ct3xr2_ct3_unpaired,\
@@ -94,7 +188,7 @@ class Model(pl.LightningModule):
         xr2covid2_lbl_paired = [ item / 128.0 - 1.0 for item in batch]
 
         
-        ct3xr2_xr2_recon = self.g_ema(ct3xr2_ct3_paired)
+        ct3xr2_xr2_recon = self.generator(ct3xr2_ct3_paired)
         val_loss = nn.L1Loss()(ct3xr2_xr2_recon, ct3xr2_xr2_paired)
         return {'val_loss': val_loss}
 
