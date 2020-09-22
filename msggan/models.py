@@ -8,6 +8,133 @@ from torch import nn
 from torch.nn import functional as F
 from torch.autograd import Function
 
+class EqualConv2d(nn.Module):
+    def __init__(
+        self, in_channels, out_channels, kernel_size, stride=1, padding=0, bias=True
+    ):
+        super().__init__()
+
+        self.weight = nn.Parameter(
+            torch.randn(out_channels, in_channels, kernel_size, kernel_size)
+        )
+        self.scale = 1 / math.sqrt(in_channels * kernel_size ** 2)
+
+        self.stride = stride
+        self.padding = padding
+
+        if bias:
+            self.bias = nn.Parameter(torch.zeros(out_channels))
+
+        else:
+            self.bias = None
+
+    def forward(self, input):
+        out = F.conv2d(
+            input,
+            self.weight * self.scale,
+            bias=self.bias,
+            stride=self.stride,
+            padding=self.padding,
+        )
+
+        return out
+
+    def __repr__(self):
+        return (
+            f'{self.__class__.__name__}({self.weight.shape[1]}, {self.weight.shape[0]},'
+            f' {self.weight.shape[2]}, stride={self.stride}, padding={self.padding})'
+        )
+
+
+class EqualConv3d(nn.Module):
+    def __init__(
+        self, in_channels, out_channels, kernel_size, stride=1, padding=0, bias=True
+    ):
+        super().__init__()
+
+        self.weight = nn.Parameter(
+            torch.randn(out_channels, in_channels, kernel_size[0], kernel_size[1], kernel_size[2])
+        )
+        self.scale = 1 / math.sqrt(in_channels * kernel_size[0] * kernel_size[1] * kernel_size[2])
+
+        self.stride = stride
+        self.padding = padding
+
+        if bias:
+            self.bias = nn.Parameter(torch.zeros(out_channels))
+
+        else:
+            self.bias = None
+
+    def forward(self, input):
+        out = F.conv3d(
+            input,
+            self.weight * self.scale,
+            bias=self.bias,
+            stride=self.stride,
+            padding=self.padding,
+        )
+
+        return out
+
+    def __repr__(self):
+        return (
+            f'{self.__class__.__name__}({self.weight.shape[1]}, {self.weight.shape[0]},'
+            f' {self.weight.shape[2]}, stride={self.stride}, padding={self.padding})'
+        )
+
+
+class EqualLinear(nn.Module):
+    def __init__(
+        self, in_dim, out_dim, bias=True, bias_init=0, lr_mul=1, activation=None
+    ):
+        super().__init__()
+
+        self.weight = nn.Parameter(torch.randn(out_dim, in_dim).div_(lr_mul))
+
+        if bias:
+            self.bias = nn.Parameter(torch.zeros(out_dim).fill_(bias_init))
+
+        else:
+            self.bias = None
+
+        self.activation = activation
+
+        self.scale = (1 / math.sqrt(in_dim)) * lr_mul
+        self.lr_mul = lr_mul
+
+    def forward(self, input):
+        if self.activation:
+            # import pdb
+            # pdb.set_trace()
+            out = F.linear(input, self.weight * self.scale)
+            out = fused_leaky_relu(out, self.bias * self.lr_mul)
+
+        else:
+            out = F.linear(
+                input, self.weight * self.scale, bias=self.bias * self.lr_mul
+            )
+
+        return out
+
+    def __repr__(self):
+        return (
+            f'{self.__class__.__name__}({self.weight.shape[1]}, {self.weight.shape[0]})'
+        )
+
+
+class ScaledLeakyReLU(nn.Module):
+    def __init__(self, negative_slope=0.2):
+        super().__init__()
+
+        self.negative_slope = negative_slope
+
+    def forward(self, input):
+        out = F.leaky_relu(input, negative_slope=self.negative_slope)
+
+        return out * math.sqrt(2)
+
+
 
 class Reshape(nn.Module):
     def __init__(self, *args):
@@ -61,26 +188,22 @@ class DoubleConv2d(nn.Module):
                  ):
         super().__init__()
         self.pre = nn.Sequential(
-            nn.Conv2d(in_channels=source_channels,
+            EqualConv2d(in_channels=source_channels,
                       out_channels=output_channels,
                       kernel_size=kernel_size,
                       stride=stride,
                       padding=padding,
                       bias=bias),
-            nn.GroupNorm(num_groups=number_grouping,
-                         num_channels=output_channels),
-            nn.LeakyReLU(inplace=True),
+            ScaledLeakyReLU(),
         )
         self.net = nn.Sequential(
-            nn.Conv2d(in_channels=output_channels,
+            EqualConv2d(in_channels=output_channels,
                       out_channels=output_channels,
                       kernel_size=3,
                       stride=1,
                       padding=1,
                       bias=False),
-            nn.GroupNorm(num_groups=number_grouping,
-                         num_channels=output_channels),
-            nn.LeakyReLU(inplace=True),
+            ScaledLeakyReLU(),
         )
 
     def forward(self, x):
@@ -101,26 +224,22 @@ class DoubleConv3d(nn.Module):
                  ):
         super().__init__()
         self.pre = nn.Sequential(
-            nn.Conv3d(in_channels=source_channels,
+            EqualConv3d(in_channels=source_channels,
                       out_channels=output_channels,
                       kernel_size=kernel_size,
                       stride=stride,
                       padding=padding,
                       bias=bias),
-            nn.GroupNorm(num_groups=number_grouping,
-                         num_channels=output_channels),
-            nn.LeakyReLU(inplace=True),
+            ScaledLeakyReLU(),
         )
         self.net = nn.Sequential(
-            nn.Conv3d(in_channels=output_channels,
+            EqualConv3d(in_channels=output_channels,
                       out_channels=output_channels,
                       kernel_size=[3, 3, 3],
                       stride=1,
                       padding=1,
                       bias=False),
-            nn.GroupNorm(num_groups=number_grouping,
-                         num_channels=output_channels),
-            nn.LeakyReLU(inplace=True),
+            ScaledLeakyReLU(),
         )
 
     def forward(self, x):
@@ -139,29 +258,25 @@ class DoubleDeconv2d(nn.Module):
                  ):
         super().__init__()
         self.pre = nn.Sequential(
-            nn.Conv2d(in_channels=source_channels,
-                      out_channels=output_channels,
-                      kernel_size=3,
-                      stride=1,
-                      padding=1,
-                      bias=False),
             nn.Upsample(scale_factor=scale_factor,
                         mode='bilinear',
                         align_corners=True),
-            nn.GroupNorm(num_groups=number_grouping,
-                         num_channels=output_channels),
-            nn.LeakyReLU(inplace=True),
-        )
-        self.net = nn.Sequential(
-            nn.Conv2d(in_channels=output_channels,
+            EqualConv2d(in_channels=source_channels,
                       out_channels=output_channels,
                       kernel_size=3,
                       stride=1,
                       padding=1,
                       bias=False),
-            nn.GroupNorm(num_groups=number_grouping,
-                         num_channels=output_channels),
-            nn.LeakyReLU(inplace=True),
+            ScaledLeakyReLU(),
+        )
+        self.net = nn.Sequential(
+            EqualConv2d(in_channels=output_channels,
+                      out_channels=output_channels,
+                      kernel_size=3,
+                      stride=1,
+                      padding=1,
+                      bias=False),
+            ScaledLeakyReLU(),
         )
 
     def forward(self, x):
@@ -169,49 +284,6 @@ class DoubleDeconv2d(nn.Module):
         ret = self.net(tmp) + tmp
         # print(ret.shape)
         return ret
-
-
-class DoubleDeconv3d(nn.Module):
-    def __init__(self,
-                 source_channels=32,
-                 output_channels=32,
-                 number_grouping=4,
-                 scale_factor=2,
-                 ):
-        super().__init__()
-        # print(scale_factor)
-        self.pre = nn.Sequential(
-            nn.Conv3d(in_channels=source_channels,
-                      out_channels=output_channels,
-                      kernel_size=3,
-                      stride=1,
-                      padding=1,
-                      bias=False),
-            nn.Upsample(scale_factor=scale_factor,
-                        mode='trilinear',
-                        align_corners=True),
-            nn.GroupNorm(num_groups=number_grouping,
-                         num_channels=output_channels),
-            nn.LeakyReLU(inplace=True),
-        )
-        self.net = nn.Sequential(
-            nn.Conv3d(in_channels=output_channels,
-                      out_channels=output_channels,
-                      kernel_size=3,
-                      stride=1,
-                      padding=1,
-                      bias=False),
-            nn.GroupNorm(num_groups=number_grouping,
-                         num_channels=output_channels),
-            nn.LeakyReLU(inplace=True),
-        )
-
-    def forward(self, x):
-        tmp = self.pre(x)
-        ret = self.net(tmp) + tmp
-        # print(ret.shape)
-        return ret
-
 
 class Skip3d(nn.Sequential):
     def __init__(self, 
@@ -224,7 +296,7 @@ class Skip3d(nn.Sequential):
         bias=False, 
     ):
         super().__init__()
-        self.conv2d = nn.Conv2d(in_channels=source_channels,
+        self.conv2d = EqualConv2d(in_channels=source_channels,
                                 out_channels=output_channels,
                                 kernel_size=kernel_size,
                                 stride=stride,
@@ -250,7 +322,7 @@ class Skip2d(nn.Sequential):
         is_injecting=False,
     ):
         super().__init__()
-        self.conv2d = nn.Conv2d(in_channels=source_channels,
+        self.conv2d = EqualConv2d(in_channels=source_channels,
                                 out_channels=output_channels,
                                 kernel_size=kernel_size,
                                 stride=stride,
@@ -286,43 +358,41 @@ class INet(nn.Module):
 
         # Transformation
         self.transformation = nn.Sequential(
-            nn.Conv2d(num_filters*num_factors[8],
+            EqualConv2d(num_filters*num_factors[8],
                       num_filters*num_factors[8],
                       kernel_size=1,
                       stride=1,
                       padding=0,
                       bias=False),
-            nn.GroupNorm(4, num_filters*num_factors[8]),
             nn.Flatten(),
-            nn.LeakyReLU(inplace=True),
-            nn.Linear(num_filters*num_factors[8], num_filters*num_factors[8]),
-            nn.LeakyReLU(inplace=True),
-            nn.Linear(num_filters*num_factors[8], num_filters*num_factors[8]),
-            nn.LeakyReLU(inplace=True),
-            nn.Linear(num_filters*num_factors[8], num_filters*num_factors[8]),
-            nn.LeakyReLU(inplace=True),
-            nn.Linear(num_filters*num_factors[8], num_filters*num_factors[8]),
-            nn.LeakyReLU(inplace=True),
+            ScaledLeakyReLU(),
+            EqualLinear(num_filters*num_factors[8], num_filters*num_factors[8]),
+            ScaledLeakyReLU(),
+            EqualLinear(num_filters*num_factors[8], num_filters*num_factors[8]),
+            ScaledLeakyReLU(),
+            EqualLinear(num_filters*num_factors[8], num_filters*num_factors[8]),
+            ScaledLeakyReLU(),
+            EqualLinear(num_filters*num_factors[8], num_filters*num_factors[8]),
+            ScaledLeakyReLU(),
             # nn.Dropout(),
-            nn.Linear(num_filters*num_factors[8], num_filters*num_factors[8]),
-            nn.LeakyReLU(inplace=True),
-            nn.Linear(num_filters*num_factors[8], num_filters*num_factors[8]),
-            nn.LeakyReLU(inplace=True),
-            nn.Linear(num_filters*num_factors[8], num_filters*num_factors[8]),
-            nn.LeakyReLU(inplace=True),
-            nn.Linear(num_filters*num_factors[8], num_filters*num_factors[8]),
-            nn.LeakyReLU(inplace=True),
+            EqualLinear(num_filters*num_factors[8], num_filters*num_factors[8]),
+            ScaledLeakyReLU(),
+            EqualLinear(num_filters*num_factors[8], num_filters*num_factors[8]),
+            ScaledLeakyReLU(),
+            EqualLinear(num_filters*num_factors[8], num_filters*num_factors[8]),
+            ScaledLeakyReLU(),
+            EqualLinear(num_filters*num_factors[8], num_filters*num_factors[8]),
+            ScaledLeakyReLU(),
 
 
             Reshape(num_filters*num_factors[8], 1, 1, 1),  # NF x 64 x 1 x 4 x 4
-            nn.Conv3d(num_filters*num_factors[8],
+            EqualConv3d(num_filters*num_factors[8],
                       num_filters*num_factors[8],
-                      kernel_size=1,
+                      kernel_size=[1, 1, 1],
                       stride=1,
                       padding=0,
                       bias=False),
-            nn.GroupNorm(4, num_filters*num_factors[8]),
-            nn.LeakyReLU(inplace=True)
+            ScaledLeakyReLU()
         )
         # 3D
         self.skip_0 = Skip3d(source_channels=num_filters*num_factors[0], output_channels=num_filters*num_factors[0]*64)
@@ -346,16 +416,16 @@ class INet(nn.Module):
         self.deconv3d_0 = DoubleDeconv3d(num_filters*num_factors[0],  num_filters*1, scale_factor=1)  
 
         self.output = nn.Sequential(
-            nn.Conv3d(num_filters*1,
+            EqualConv3d(num_filters*1,
                       output_channels,
-                      kernel_size=3,
+                      kernel_size=[3, 3, 3],
                       stride=1,
                       padding=1,
                       bias=False),
-            nn.LeakyReLU(inplace=True),
+            ScaledLeakyReLU(),
             Squeeze(dim=1),
-            nn.Conv2d(64, 64, kernel_size=1, stride=1, padding=0, bias=False),
-            nn.Tanh(),
+            EqualConv2d(64, 64, kernel_size=1, stride=1, padding=0, bias=False),
+            # nn.Tanh(),
         )
 
     def forward(self, x):
@@ -392,8 +462,10 @@ class PGNet(nn.Module):
         output_channels=1, 
         num_filters=16, 
         num_factors=[1, 2, 4, 8, 16, 24, 32, 48, 64],
+        is_skipping=False,
         is_injecting=False):
         super().__init__()
+        self.is_skipping = is_skipping
         self.is_injecting = is_injecting
         # 2D
         self.conv3d_0 = DoubleConv3d(source_channels, num_filters*num_factors[0], kernel_size=(3, 3, 3), stride=(1, 1, 1), padding=(1, 1, 1))         # NF x 1 x 256 x 256
@@ -408,42 +480,40 @@ class PGNet(nn.Module):
 
         # Transformation
         self.transformation = nn.Sequential(
-            nn.Conv3d(num_filters*num_factors[8],
+            EqualConv3d(num_filters*num_factors[8],
                       num_filters*num_factors[8],
-                      kernel_size=1,
+                      kernel_size=[1, 1, 1],
                       stride=1,
                       padding=0,
                       bias=False),
-            nn.GroupNorm(4, num_filters*num_factors[8]),
             nn.Flatten(),
-            nn.LeakyReLU(inplace=True),
-            nn.Linear(num_filters*num_factors[8], num_filters*num_factors[8]),
-            nn.LeakyReLU(inplace=True),
-            nn.Linear(num_filters*num_factors[8], num_filters*num_factors[8]),
-            nn.LeakyReLU(inplace=True),
-            nn.Linear(num_filters*num_factors[8], num_filters*num_factors[8]),
-            nn.LeakyReLU(inplace=True),
-            nn.Linear(num_filters*num_factors[8], num_filters*num_factors[8]),
-            nn.LeakyReLU(inplace=True),
+            ScaledLeakyReLU(),
+            EqualLinear(num_filters*num_factors[8], num_filters*num_factors[8]),
+            ScaledLeakyReLU(),
+            EqualLinear(num_filters*num_factors[8], num_filters*num_factors[8]),
+            ScaledLeakyReLU(),
+            EqualLinear(num_filters*num_factors[8], num_filters*num_factors[8]),
+            ScaledLeakyReLU(),
+            EqualLinear(num_filters*num_factors[8], num_filters*num_factors[8]),
+            ScaledLeakyReLU(),
 
-            nn.Linear(num_filters*num_factors[8], num_filters*num_factors[8]),
-            nn.LeakyReLU(inplace=True),
-            nn.Linear(num_filters*num_factors[8], num_filters*num_factors[8]),
-            nn.LeakyReLU(inplace=True),
-            nn.Linear(num_filters*num_factors[8], num_filters*num_factors[8]),
-            nn.LeakyReLU(inplace=True),
-            nn.Linear(num_filters*num_factors[8], num_filters*num_factors[8]),
-            nn.LeakyReLU(inplace=True),
+            EqualLinear(num_filters*num_factors[8], num_filters*num_factors[8]),
+            ScaledLeakyReLU(),
+            EqualLinear(num_filters*num_factors[8], num_filters*num_factors[8]),
+            ScaledLeakyReLU(),
+            EqualLinear(num_filters*num_factors[8], num_filters*num_factors[8]),
+            ScaledLeakyReLU(),
+            EqualLinear(num_filters*num_factors[8], num_filters*num_factors[8]),
+            ScaledLeakyReLU(),
 
             Reshape(num_filters*num_factors[8], 1, 1),  # NF x 64 x 1 x 4 x 4
-            nn.Conv2d(num_filters*num_factors[8],
+            EqualConv2d(num_filters*num_factors[8],
                       num_filters*num_factors[8],
                       kernel_size=1,
                       stride=1,
                       padding=0,
                       bias=False),
-            nn.GroupNorm(4, num_filters*num_factors[8]),
-            nn.LeakyReLU(inplace=True)
+            ScaledLeakyReLU()
         )
         
         # 2D
@@ -467,29 +537,28 @@ class PGNet(nn.Module):
         self.deconv2d_1 = DoubleDeconv2d(num_filters*num_factors[1],  num_filters*num_factors[0])  
         self.deconv2d_0 = DoubleDeconv2d(num_filters*num_factors[0],  num_filters*1, scale_factor=1)  
 
-        self.scale_8 = nn.Conv2d(num_filters*num_factors[8], 1, 1)
-        self.scale_7 = nn.Conv2d(num_filters*num_factors[7], 1, 1)
-        self.scale_6 = nn.Conv2d(num_filters*num_factors[6], 1, 1)
-        self.scale_5 = nn.Conv2d(num_filters*num_factors[5], 1, 1)
-        self.scale_4 = nn.Conv2d(num_filters*num_factors[4], 1, 1)
-        self.scale_3 = nn.Conv2d(num_filters*num_factors[3], 1, 1)
-        self.scale_2 = nn.Conv2d(num_filters*num_factors[2], 1, 1)
-        self.scale_1 = nn.Conv2d(num_filters*num_factors[1], 1, 1)
-        self.scale_0 = nn.Conv2d(num_filters*num_factors[0], 1, 1)
+        self.scale_8 = EqualConv2d(num_filters*num_factors[8], 1, 1)
+        self.scale_7 = EqualConv2d(num_filters*num_factors[7], 1, 1)
+        self.scale_6 = EqualConv2d(num_filters*num_factors[6], 1, 1)
+        self.scale_5 = EqualConv2d(num_filters*num_factors[5], 1, 1)
+        self.scale_4 = EqualConv2d(num_filters*num_factors[4], 1, 1)
+        self.scale_3 = EqualConv2d(num_filters*num_factors[3], 1, 1)
+        self.scale_2 = EqualConv2d(num_filters*num_factors[2], 1, 1)
+        self.scale_1 = EqualConv2d(num_filters*num_factors[1], 1, 1)
+        self.scale_0 = EqualConv2d(num_filters*num_factors[0], 1, 1)
 
 
         # # 2D
         self.output = nn.Sequential(
-            nn.Conv2d(num_filters*1,
+            EqualConv2d(num_filters*1,
                       num_filters*1,
                       kernel_size=3,
                       stride=1,
                       padding=1,
                       bias=False),
-            nn.GroupNorm(4, num_filters*1),
-            nn.LeakyReLU(inplace=True),
-            nn.Conv2d(num_filters*1, output_channels, kernel_size=1, stride=1, padding=0, bias=False),
-            nn.Tanh(),
+            ScaledLeakyReLU(),
+            EqualConv2d(num_filters*1, output_channels, kernel_size=1, stride=1, padding=0, bias=False),
+            # nn.Tanh(),
         )
 
     def forward(self, x):
@@ -507,15 +576,26 @@ class PGNet(nn.Module):
 
         transforms = self.transformation(conv3d_8)
         
-        deconv2d_8 = self.deconv2d_8(transforms + self.skip_8(conv3d_8))
-        deconv2d_7 = self.deconv2d_7(deconv2d_8 + self.skip_7(conv3d_7))
-        deconv2d_6 = self.deconv2d_6(deconv2d_7 + self.skip_6(conv3d_6))
-        deconv2d_5 = self.deconv2d_5(deconv2d_6 + self.skip_5(conv3d_5))
-        deconv2d_4 = self.deconv2d_4(deconv2d_5 + self.skip_4(conv3d_4))
-        deconv2d_3 = self.deconv2d_3(deconv2d_4 + self.skip_3(conv3d_3))
-        deconv2d_2 = self.deconv2d_2(deconv2d_3 + self.skip_2(conv3d_2))
-        deconv2d_1 = self.deconv2d_1(deconv2d_2 + self.skip_1(conv3d_1))
-        deconv2d_0 = self.deconv2d_0(deconv2d_1 + self.skip_0(conv3d_0))
+        if self.is_skipping:
+            deconv2d_8 = self.deconv2d_8(transforms + self.skip_8(conv3d_8))
+            deconv2d_7 = self.deconv2d_7(deconv2d_8 + self.skip_7(conv3d_7))
+            deconv2d_6 = self.deconv2d_6(deconv2d_7 + self.skip_6(conv3d_6))
+            deconv2d_5 = self.deconv2d_5(deconv2d_6 + self.skip_5(conv3d_5))
+            deconv2d_4 = self.deconv2d_4(deconv2d_5 + self.skip_4(conv3d_4))
+            deconv2d_3 = self.deconv2d_3(deconv2d_4 + self.skip_3(conv3d_3))
+            deconv2d_2 = self.deconv2d_2(deconv2d_3 + self.skip_2(conv3d_2))
+            deconv2d_1 = self.deconv2d_1(deconv2d_2 + self.skip_1(conv3d_1))
+            deconv2d_0 = self.deconv2d_0(deconv2d_1 + self.skip_0(conv3d_0))
+        else:
+            deconv2d_8 = self.deconv2d_8(transforms)
+            deconv2d_7 = self.deconv2d_7(deconv2d_8)
+            deconv2d_6 = self.deconv2d_6(deconv2d_7)
+            deconv2d_5 = self.deconv2d_5(deconv2d_6)
+            deconv2d_4 = self.deconv2d_4(deconv2d_5)
+            deconv2d_3 = self.deconv2d_3(deconv2d_4)
+            deconv2d_2 = self.deconv2d_2(deconv2d_3)
+            deconv2d_1 = self.deconv2d_1(deconv2d_2)
+            deconv2d_0 = self.deconv2d_0(deconv2d_1)
            
         scale_8 = self.scale_8(transforms)
         scale_7 = self.scale_7(deconv2d_8)
@@ -546,8 +626,10 @@ class PDNet(nn.Module):
         output_channels=1, 
         num_filters=32, 
         num_factors=[1, 2, 4, 8, 16, 24, 32, 48, 64],
+        is_skipping=False,
         is_injecting=False):
         super().__init__()
+        self.is_skipping = is_skipping
         self.is_injecting = is_injecting
         # 2D
         self.conv2d_0 = DoubleConv2d(source_channels, num_filters*num_factors[0], kernel_size=3, stride=1)  # NF x 1 x 256 x 256
@@ -560,35 +642,34 @@ class PDNet(nn.Module):
         self.conv2d_7 = DoubleConv2d(num_filters*num_factors[6],  num_filters*num_factors[7])               # NF x 48 x 2 x 2
         self.conv2d_8 = DoubleConv2d(num_filters*num_factors[7],  num_filters*num_factors[8])               # NF x 64 x 1 x 1
 
-        self.scale_8 = nn.Conv2d(1, num_filters*num_factors[8], 1)
-        self.scale_7 = nn.Conv2d(1, num_filters*num_factors[7], 1)
-        self.scale_6 = nn.Conv2d(1, num_filters*num_factors[6], 1)
-        self.scale_5 = nn.Conv2d(1, num_filters*num_factors[5], 1)
-        self.scale_4 = nn.Conv2d(1, num_filters*num_factors[4], 1)
-        self.scale_3 = nn.Conv2d(1, num_filters*num_factors[3], 1)
-        self.scale_2 = nn.Conv2d(1, num_filters*num_factors[2], 1)
-        self.scale_1 = nn.Conv2d(1, num_filters*num_factors[1], 1)
-        self.scale_0 = nn.Conv2d(1, num_filters*num_factors[0], 1)
+        self.scale_8 = EqualConv2d(1, num_filters*num_factors[8], 1)
+        self.scale_7 = EqualConv2d(1, num_filters*num_factors[7], 1)
+        self.scale_6 = EqualConv2d(1, num_filters*num_factors[6], 1)
+        self.scale_5 = EqualConv2d(1, num_filters*num_factors[5], 1)
+        self.scale_4 = EqualConv2d(1, num_filters*num_factors[4], 1)
+        self.scale_3 = EqualConv2d(1, num_filters*num_factors[3], 1)
+        self.scale_2 = EqualConv2d(1, num_filters*num_factors[2], 1)
+        self.scale_1 = EqualConv2d(1, num_filters*num_factors[1], 1)
+        self.scale_0 = EqualConv2d(1, num_filters*num_factors[0], 1)
 
         # Transformation
         self.transformation = nn.Sequential(
-            nn.Conv2d(num_filters*num_factors[8],
+            EqualConv2d(num_filters*num_factors[8],
                       num_filters*num_factors[8],
                       kernel_size=1,
                       stride=1,
                       padding=0,
                       bias=False),
-            nn.GroupNorm(4, num_filters*num_factors[8]),
             nn.Flatten(),
-            nn.LeakyReLU(inplace=True),
+            ScaledLeakyReLU(),
             nn.Linear(num_filters*num_factors[8], num_filters*num_factors[8]),
-            nn.LeakyReLU(inplace=True),
+            ScaledLeakyReLU(),
             nn.Linear(num_filters*num_factors[8], num_filters*num_factors[8]),
-            nn.LeakyReLU(inplace=True),
+            ScaledLeakyReLU(),
             nn.Linear(num_filters*num_factors[8], num_filters*num_factors[8]),
-            nn.LeakyReLU(inplace=True),
+            ScaledLeakyReLU(),
             nn.Linear(num_filters*num_factors[8], 1),
-            nn.LeakyReLU(inplace=True),
+            ScaledLeakyReLU(),
         )
        
     def forward(self, x, scales):

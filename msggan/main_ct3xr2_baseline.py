@@ -56,11 +56,11 @@ class Model(pl.LightningModule):
         return [opt_g, opt_d], []
 
     def init_discriminator(self):
-        discriminator = PDNet(is_injecting=True, num_filters=8)
+        discriminator = PDNet(is_skipping=True, is_injecting=False, num_filters=self.hparams.features)
         return discriminator 
 
     def init_generator(self):
-        generator = PGNet(is_injecting=True, num_filters=8)
+        generator = PGNet(is_skipping=True, is_injecting=False, num_filters=self.hparams.features)
         return generator
 
     
@@ -87,13 +87,13 @@ class Model(pl.LightningModule):
         d_real_loss = F.binary_cross_entropy_with_logits(d_real, y_real)
 
         
-        x_recon, s_recon = self.generator(i_paired)
-        c_loss = nn.L1Loss()(x_paired, x_recon)
+        # x_recon, s_recon = self.generator(i_paired)
+        # c_loss = nn.L1Loss()(x_paired, x_recon)
 
         # gradient backprop & optimize ONLY D's parameters
         d_loss = d_real_loss + d_fake_loss
 
-        return d_loss + c_loss
+        return d_loss # + c_loss
 
     def generator_loss(self, x_real, i_fake, x_paired, i_paired):
         b = x_real.shape[0]
@@ -110,6 +110,9 @@ class Model(pl.LightningModule):
         c_loss = nn.L1Loss()(x_paired, x_recon)
 
         # Visualization
+        for idx in range(len(s_fake)):
+            grid = torchvision.utils.make_grid(s_fake[idx], 8, normalize=True, range=(-1, 1))
+            self.logger.experiment.add_image(f's_fake_[{idx}]', grid, self.current_epoch)
         grid = torchvision.utils.make_grid(x_fake, 8, normalize=True, range=(-1, 1))
         self.logger.experiment.add_image('ct3xr2_xr2_fake', grid, self.current_epoch)
         grid = torchvision.utils.make_grid(x_real, 8, normalize=True, range=(-1, 1))
@@ -351,7 +354,7 @@ if __name__ == '__main__':
     parser.add_argument("--num_workers", type=int, default=8, help="size of the workers")
     parser.add_argument("--lr", type=float, default=0.0002, help="learning rate")
     parser.add_argument("--nb_layer", type=int, default=5, help="number of layers on u-net")
-    parser.add_argument("--features", type=int, default=8, help="number of features in single layer")
+    parser.add_argument("--features", type=int, default=16, help="number of features in single layer")
     parser.add_argument("--bilinear", action='store_true', default=False,
                         help="whether to use bilinear interpolation or transposed")
     parser.add_argument("--grad_batches", type=int, default=1, help="number of batches to accumulate")
